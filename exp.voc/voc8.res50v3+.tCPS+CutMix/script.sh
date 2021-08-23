@@ -3,7 +3,7 @@ nvidia-smi
 
 export volna="/home/ubuntu/volume/TorchSemiSeg/"
 export NGPUS=4
-export OUTPUT_PATH="/home/ubuntu/volume/TorchSemiSeg/output/voc8.res50v3+.tCPS+CutMix"
+export OUTPUT_PATH="/home/ubuntu/volume/TorchSemiSeg/output"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 
 export batch_size=8
