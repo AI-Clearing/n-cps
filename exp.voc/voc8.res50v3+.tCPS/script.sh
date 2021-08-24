@@ -9,6 +9,8 @@ export snapshot_dir=$OUTPUT_PATH/snapshot
 export batch_size=8
 export learning_rate=0.0025
 export snapshot_iter=1
+export threshold=0.5
+export burnup_step=0
 
 python -m torch.distributed.launch --nproc_per_node=$NGPUS train.py
 export TARGET_DEVICE=$[$NGPUS-1]

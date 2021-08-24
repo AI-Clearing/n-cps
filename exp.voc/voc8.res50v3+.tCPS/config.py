@@ -95,6 +95,16 @@ if os.getenv('batch_size'):
 else:
     C.batch_size = 16
 
+if os.getenv('threshold'):
+    C.threshold = float(os.environ['threshold'])
+else:
+    C.threshold = 0.5
+
+if os.getenv('burnup_step'):
+    C.burnup_step = int(os.environ['burnup_step'])
+else:
+    C.burnup_step = 0
+
 C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 1e-4

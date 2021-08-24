@@ -160,8 +160,8 @@ with Engine(custom_parser=parser) as engine:
         sum_cps = 0
         sum_unsup_passed_percent_l, sum_unsup_passed_percent_r = 0, 0
 
-        THRESHOLD = .5
-        BURNUP_STEP = 10  # TODO: optimise
+        THRESHOLD = config.threshold
+        BURNUP_STEP = config.burnup_step  # TODO: optimise, check if it messes with logging values (len(pbar))
         THRESHOLDING_TYPE = "cut"  # "zero" or "cut"
         # TODO: at least two possibilities to proceed here
         # 1) zero all classes in pixels below the threshold (in a single tensor) - "zero"
