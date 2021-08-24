@@ -209,7 +209,7 @@ with Engine(custom_parser=parser) as engine:
                     sum_unsup_passed_percent_l += unsup_passed_percent_l / engine.world_size
                     unsup_passed_percent_r = mask_r.sum().float() / mask_r.numel()
                     dist.all_reduce(unsup_passed_percent_r, dist.ReduceOp.SUM)
-                    sum_unsup_passed_percent_r = unsup_passed_percent_r / engine.world_size
+                    sum_unsup_passed_percent_r += unsup_passed_percent_r / engine.world_size
                 else:
                     raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
 
