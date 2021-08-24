@@ -71,7 +71,8 @@ with Engine(custom_parser=parser) as engine:
         engine.link_tb(tb_dir, generate_tb_dir)
 
     # config network and criterion
-    criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=255)
+    IGNORE_INDEX = 255
+    criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=IGNORE_INDEX)
     criterion_csst = nn.MSELoss(reduction='mean')
 
     if engine.distributed:
@@ -157,6 +158,14 @@ with Engine(custom_parser=parser) as engine:
         sum_loss_sup = 0
         sum_loss_sup_r = 0
         sum_cps = 0
+        sum_unsup_passed_percent_l, sum_unsup_passed_percent_r = 0, 0
+
+        THRESHOLD = .5
+        BURNUP_STEP = 10  # TODO: optimise
+        THRESHOLDING_TYPE = "cut"  # "zero" or "cut"
+        # TODO: at least two possibilities to proceed here
+        # 1) zero all classes in pixels below the threshold (in a single tensor) - "zero"
+        # 2) cut all the things below the threshold (in both tensors) - "cut"
 
         ''' supervised part '''
         for idx in pbar:
@@ -181,17 +190,47 @@ with Engine(custom_parser=parser) as engine:
             _, pred_sup_r = model(imgs, step=2)
             _, pred_unsup_r = model(unsup_imgs, step=2)
 
-            ### cps loss ###
-            pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
-            pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
-            _, max_l = torch.max(pred_l, dim=1)
-            _, max_r = torch.max(pred_r, dim=1)
-            max_l = max_l.long()
-            max_r = max_r.long()
-            cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
-            dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
-            cps_loss = cps_loss / engine.world_size
-            cps_loss = cps_loss * config.cps_weight
+            ### unsupervised thresholding ###
+            current_idx = epoch * config.niters_per_epoch + idx
+
+            cps_loss = torch.Tensor([0.]).to(device=pred_sup_l.device)
+            if current_idx >= BURNUP_STEP:
+            
+                if THRESHOLDING_TYPE == "cut":
+                    # valid mask generation for thresholding
+                    max_value_per_pixel_l = nn.functional.softmax(pred_unsup_l, dim=1).max(dim=1)[0]
+                    mask_l = max_value_per_pixel_l > THRESHOLD
+                    max_value_per_pixel_r = nn.functional.softmax(pred_unsup_r, dim=1).max(dim=1)[0]
+                    mask_r = max_value_per_pixel_r > THRESHOLD
+
+                    # for logging
+                    unsup_passed_percent_l = mask_l.sum().float() / mask_l.numel()
+                    dist.all_reduce(unsup_passed_percent_l, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_l += unsup_passed_percent_l / engine.world_size
+                    unsup_passed_percent_r = mask_r.sum().float() / mask_r.numel()
+                    dist.all_reduce(unsup_passed_percent_r, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_r = unsup_passed_percent_r / engine.world_size
+                else:
+                    raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
+
+                ### cps loss ###
+                pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
+                pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
+                _, max_l = torch.max(pred_l, dim=1)
+                _, max_r = torch.max(pred_r, dim=1)
+                max_l = max_l.long()
+                max_r = max_r.long()
+
+                if THRESHOLDING_TYPE == "cut":
+                    # Fill low confidence pixels with ignored mask 
+                    # TODO: hardcoded first dimension for 8 gpus, might vary with different batches!
+                    max_r[1, :, :][~mask_r.squeeze()] = IGNORE_INDEX
+                    max_l[1, :, :][~mask_l.squeeze()] = IGNORE_INDEX
+
+                cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
+                dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
+                cps_loss = cps_loss / engine.world_size
+                cps_loss = cps_loss * config.cps_weight
 
             ### standard cross entropy loss ###
             loss_sup = criterion(pred_sup_l, gts)
@@ -204,7 +243,6 @@ with Engine(custom_parser=parser) as engine:
 
             unlabeled_loss = False
 
-            current_idx = epoch * config.niters_per_epoch + idx
             lr = lr_policy.get_lr(current_idx)
 
             # reset the learning rate
@@ -241,6 +279,14 @@ with Engine(custom_parser=parser) as engine:
             logger.add_scalar('train_loss_sup', sum_loss_sup / len(pbar), epoch)
             logger.add_scalar('train_loss_sup_r', sum_loss_sup_r / len(pbar), epoch)
             logger.add_scalar('train_loss_cps', sum_cps / len(pbar), epoch)
+
+            if THRESHOLDING_TYPE=='cut':
+                ### unsupervised thresholding - for logging ###
+                logger.add_scalar('thresholding/unsup_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
+                logger.add_scalar('thresholding/unsup_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
+                # max_value_per_pixel_r_list = [torch.zeros_like(max_value_per_pixel_r) for _ in range(engine.world_size)]
+                # dist.all_gather(max_value_per_pixel_r_list, max_value_per_pixel_r)
+                # logger.add_histogram('thresholding/max_value_per_pixel_r', torch.stack(max_value_per_pixel_r_list))
 
         if azure and engine.local_rank == 0:
             run.log(name='Supervised Training Loss', value=sum_loss_sup / len(pbar))
