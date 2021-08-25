@@ -46,6 +46,11 @@ if os.getenv('debug') is not None:
 else:
     is_debug = False
 
+def get_mask(pred, THRESHOLD):
+    max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
+    mask = max_value_per_pixel > THRESHOLD
+    return mask
+
 with Engine(custom_parser=parser) as engine:
     args = parser.parse_args()
 
@@ -195,27 +200,26 @@ with Engine(custom_parser=parser) as engine:
 
             cps_loss = torch.Tensor([0.]).to(device=pred_sup_l.device)
             if current_idx >= BURNUP_STEP:
-            
+                pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
+                pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
+
                 if THRESHOLDING_TYPE == "cut":
                     # valid mask generation for thresholding
-                    max_value_per_pixel_l = nn.functional.softmax(pred_unsup_l, dim=1).max(dim=1)[0]
-                    mask_l = max_value_per_pixel_l > THRESHOLD
-                    max_value_per_pixel_r = nn.functional.softmax(pred_unsup_r, dim=1).max(dim=1)[0]
-                    mask_r = max_value_per_pixel_r > THRESHOLD
-
+                    mask_l = get_mask(pred_l, THRESHOLD)
+                    mask_r = get_mask(pred_r, THRESHOLD)
+                    
                     # for logging
-                    unsup_passed_percent_l = mask_l.sum().float() / mask_l.numel()
-                    dist.all_reduce(unsup_passed_percent_l, dist.ReduceOp.SUM)
-                    sum_unsup_passed_percent_l += unsup_passed_percent_l / engine.world_size
-                    unsup_passed_percent_r = mask_r.sum().float() / mask_r.numel()
-                    dist.all_reduce(unsup_passed_percent_r, dist.ReduceOp.SUM)
-                    sum_unsup_passed_percent_r += unsup_passed_percent_r / engine.world_size
+                    cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()
+                    dist.all_reduce(cps_passed_percent_l, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_l += cps_passed_percent_l / engine.world_size
+                    cps_passed_percent_r = mask_r.sum().float() / mask_r.numel()
+                    dist.all_reduce(cps_passed_percent_r, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_r += cps_passed_percent_r / engine.world_size
                 else:
                     raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
 
                 ### cps loss ###
-                pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
-                pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
+                
                 _, max_l = torch.max(pred_l, dim=1)
                 _, max_r = torch.max(pred_r, dim=1)
                 max_l = max_l.long()
@@ -223,10 +227,9 @@ with Engine(custom_parser=parser) as engine:
 
                 if THRESHOLDING_TYPE == "cut":
                     # Fill low confidence pixels with ignored mask 
-                    # TODO: hardcoded first dimension for 8 gpus, might vary with different batches!
-                    max_r[1, :, :][~mask_r.squeeze()] = IGNORE_INDEX
-                    max_l[1, :, :][~mask_l.squeeze()] = IGNORE_INDEX
-
+                    max_r[~mask_r.squeeze()] = IGNORE_INDEX
+                    max_l[~mask_l.squeeze()] = IGNORE_INDEX
+                    
                 cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
                 dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
                 cps_loss = cps_loss / engine.world_size
@@ -282,8 +285,8 @@ with Engine(custom_parser=parser) as engine:
 
             if THRESHOLDING_TYPE=='cut':
                 ### unsupervised thresholding - for logging ###
-                logger.add_scalar('thresholding/unsup_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
-                logger.add_scalar('thresholding/unsup_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
+                logger.add_scalar('thresholding/cps_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
+                logger.add_scalar('thresholding/cps_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
                 # max_value_per_pixel_r_list = [torch.zeros_like(max_value_per_pixel_r) for _ in range(engine.world_size)]
                 # dist.all_gather(max_value_per_pixel_r_list, max_value_per_pixel_r)
                 # logger.add_histogram('thresholding/max_value_per_pixel_r', torch.stack(max_value_per_pixel_r_list))
