@@ -18,6 +18,7 @@ from seg_opr.metric import hist_info, compute_score
 from dataloader import VOC
 from dataloader import ValPre
 from network import Network
+from tensorboardX import SummaryWriter
 
 try:
     from azureml.core import Run
@@ -114,7 +115,7 @@ class SegEvaluator(Evaluator):
 
         return results_dict
 
-    def compute_metric(self, results):
+    def compute_metric(self, results, model_number=None):
         hist = np.zeros((config.num_classes, config.num_classes))
         correct = 0
         labeled = 0
@@ -127,6 +128,12 @@ class SegEvaluator(Evaluator):
 
         iu, mean_IU, _, mean_pixel_acc = compute_score(hist, correct,
                                                        labeled)
+        if model_number and model_number.isnumeric():
+            step = int(model_number) + 1
+            with SummaryWriter(log_dir=config.tb_dir+ '/tb') as tb:
+                tb.add_scalar('test/mIoU', mean_IU, step)
+                tb.add_scalar('test/mAcc', mean_pixel_acc, step)
+
         print(len(dataset.get_class_names()))
         result_line = print_iou(iu, mean_pixel_acc,
                                 dataset.get_class_names(), True)
@@ -154,6 +161,9 @@ if __name__ == "__main__":
                     'eval_source': config.eval_source}
     val_pre = ValPre()
     dataset = VOC(data_setting, 'val', val_pre, training=False)
+
+    if not os.path.exists(config.log_dir):
+        os.makedirs(config.log_dir)
 
     with torch.no_grad():
         segmentor = SegEvaluator(dataset, config.num_classes, config.image_mean,

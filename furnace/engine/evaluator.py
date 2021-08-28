@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import time
+import re
 from tqdm import tqdm
 
 import torch
@@ -94,10 +95,14 @@ class Evaluator(object):
                 logger.info("No model is loaded !!!!!!!")
                 self.val_func = self.network
             #from IPython import embed; embed()
+            try:
+                model_number = re.findall('\d+', str(model))[-1]
+            except IndexError:
+                model_number = None
             if len(self.devices ) == 1:
                 result_line = self.single_process_evalutation()
             else:
-                result_line = self.multi_process_evaluation()
+                result_line = self.multi_process_evaluation(model_number=model_number)
 
             results.write('Model: ' + model + '\n')
             results.write(result_line)
@@ -124,7 +129,7 @@ class Evaluator(object):
 
 
 
-    def multi_process_evaluation(self):
+    def multi_process_evaluation(self, model_number=None):
         start_eval_time = time.perf_counter()
         nr_devices = len(self.devices)
         stride = int(np.ceil(self.ndata / nr_devices))
@@ -157,7 +162,7 @@ class Evaluator(object):
         for p in procs:
             p.join()
 
-        result_line = self.compute_metric(all_results)
+        result_line = self.compute_metric(all_results, model_number=model_number)
         logger.info(
             'Evaluation Elapsed Time: %.2fs' % (
                     time.perf_counter() - start_eval_time))
