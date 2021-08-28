@@ -31,10 +31,10 @@ C.abs_dir = osp.realpath(".")
 C.this_dir = C.abs_dir.split(osp.sep)[-1]
 
 C.root_dir = C.abs_dir[:C.abs_dir.index(C.repo_name) + len(C.repo_name)]
-C.log_dir = osp.abspath('log')
-C.tb_dir = osp.abspath(osp.join(C.log_dir, "tb"))
+C.log_dir = os.environ['log_dir']
+C.tb_dir = os.environ['tb_dir']
 
-C.log_dir_link = osp.join(C.abs_dir, 'log')
+C.log_dir_link = osp.join(C.log_dir, 'log')
 
 # snapshot dir that stores checkpoints
 if os.getenv('snapshot_dir'):
@@ -61,7 +61,11 @@ def add_path(path):
 add_path(osp.join(C.root_dir, 'furnace'))
 
 ''' Experiments Setting '''
-C.labeled_ratio = 8     # ratio of labeled set
+# ratio of labeled set
+if os.getenv('labeled_ratio'):
+    C.labeled_ratio = int(os.environ['labeled_ratio'])
+else:
+    C.labeled_ratio = 8
 C.train_source = osp.join(C.dataset_path, "subset_train_aug/train_aug_labeled_1-{}.txt".format(C.labeled_ratio))
 C.unsup_source = osp.join(C.dataset_path, "subset_train_aug/train_aug_unlabeled_1-{}.txt".format(C.labeled_ratio))
 C.eval_source = osp.join(C.dataset_path, "val.txt")
@@ -71,7 +75,10 @@ C.bn_eps = 1e-5
 C.bn_momentum = 0.1
 
 C.unsup_weight = 0
-C.cps_weight = 1.5
+if os.getenv('cps_weight'):
+    C.cps_weight = float(os.environ['cps_weight'])
+else:
+    C.cps_weight = 1.5
 
 ''' Image Config '''
 C.num_classes = 21
@@ -109,7 +116,10 @@ C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 1e-4
 
-C.nepochs = 34
+if os.getenv('nepochs'):
+    C.nepochs = int(os.environ['nepochs'])
+else:
+    C.nepochs = 0
 C.max_samples = max(C.num_train_imgs, C.num_unsup_imgs)     # Define the iterations in an epoch
 C.cold_start = 0
 C.niters_per_epoch = int(math.ceil(C.max_samples * 1.0 // C.batch_size))
