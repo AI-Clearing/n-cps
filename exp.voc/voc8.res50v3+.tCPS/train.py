@@ -297,7 +297,7 @@ with Engine(custom_parser=parser) as engine:
             run.log(name='Supervised Training Loss CPS', value=sum_cps / len(pbar))
 
 
-        if (epoch > config.nepochs // 2) and (epoch % config.snapshot_iter == 0) or (epoch == config.nepochs - 1):
+        if True:  # save all intermediate models
             if engine.distributed and (engine.local_rank == 0):
                 engine.save_and_link_checkpoint(config.snapshot_dir,
                                                 config.log_dir,
