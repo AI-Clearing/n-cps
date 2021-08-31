@@ -108,6 +108,10 @@ class Evaluator(object):
             results.write(result_line)
             results.write('\n')
             results.flush()
+            try:
+                os.remove(str(model))
+            except:
+                logger.info(f"Could not delete model: {str(model)}")
 
         results.close()
 
