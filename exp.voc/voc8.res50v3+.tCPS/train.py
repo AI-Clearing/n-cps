@@ -46,9 +46,12 @@ if os.getenv('debug') is not None:
 else:
     is_debug = False
 
-def get_mask(pred, THRESHOLD):
+def get_mask(pred, THRESHOLD, TCPS_PASS='normal'):
     max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
-    mask = max_value_per_pixel > THRESHOLD
+    if TCPS_PASS == 'lowpass':
+        mask = max_value_per_pixel >= THRESHOLD
+    else:
+        mask = max_value_per_pixel > THRESHOLD
     return mask
 
 with Engine(custom_parser=parser) as engine:
@@ -168,6 +171,8 @@ with Engine(custom_parser=parser) as engine:
         THRESHOLD = config.threshold
         BURNUP_STEP = config.burnup_step  # TODO: optimise, check if it messes with logging values (len(pbar))
         THRESHOLDING_TYPE = "cut"  # "zero" or "cut"
+        TCPS_PASS = config.tcps_pass
+
         # TODO: at least two possibilities to proceed here
         # 1) zero all classes in pixels below the threshold (in a single tensor) - "zero"
         # 2) cut all the things below the threshold (in both tensors) - "cut"
@@ -205,8 +210,8 @@ with Engine(custom_parser=parser) as engine:
 
                 if THRESHOLDING_TYPE == "cut":
                     # valid mask generation for thresholding
-                    mask_l = get_mask(pred_l, THRESHOLD)
-                    mask_r = get_mask(pred_r, THRESHOLD)
+                    mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
+                    mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
                     
                     # for logging
                     cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()

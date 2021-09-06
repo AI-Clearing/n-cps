@@ -92,6 +92,11 @@ C.num_eval_imgs = 1449
 C.num_unsup_imgs = 10582 - C.num_train_imgs     # unsupervised samples
 
 """Train Config"""
+if os.getenv('tcps_pass'):
+    C.tcps_pass = str(os.environ['tcps_pass'])
+else:
+    C.tcps_pass = "normal"
+
 if os.getenv('learning_rate'):
     C.lr = float(os.environ['learning_rate'])
 else:
