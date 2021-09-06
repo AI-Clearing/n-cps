@@ -131,7 +131,7 @@ class SegEvaluator(Evaluator):
         if model_number and model_number.isnumeric():
             step = int(model_number)
             with SummaryWriter(log_dir=config.tb_dir+ '/tb') as tb:
-                tb.add_scalar('test/mIoU', mean_IU * 100.0, step)
+                tb.add_scalar('test/mIoU', np.nanmean(iu) * 100.0, step)
                 tb.add_scalar('test/mAcc', mean_pixel_acc * 100.0, step)
 
         print(len(dataset.get_class_names()))
