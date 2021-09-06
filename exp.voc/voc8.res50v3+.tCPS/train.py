@@ -49,7 +49,7 @@ else:
 def get_mask(pred, THRESHOLD, TCPS_PASS='normal'):
     max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
     if TCPS_PASS == 'lowpass':
-        mask = max_value_per_pixel >= THRESHOLD
+        mask = max_value_per_pixel < THRESHOLD
     else:
         mask = max_value_per_pixel > THRESHOLD
     return mask
