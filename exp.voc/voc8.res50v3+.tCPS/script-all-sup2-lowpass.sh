@@ -15,7 +15,7 @@ export burnup_step=0
 for CPS_WEIGHT in 1.5 3.0 4.5
 do
     export cps_weight=$CPS_WEIGHT
-    for THRESHOLD in 0.9 0.8 0.7 0.6 0.5
+    for THRESHOLD in 0.98 0.96 0.94 0.92 0.90
     do
         export threshold=$THRESHOLD
         ./script-lowpass.sh
