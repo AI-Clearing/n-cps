@@ -143,3 +143,6 @@ city16*
 DATA/pascal_voc
 .vscode
 *.zip
+DATA/aic
+exp.aic
+xaa

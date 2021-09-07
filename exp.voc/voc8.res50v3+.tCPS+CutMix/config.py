@@ -31,10 +31,10 @@ C.abs_dir = osp.realpath(".")
 C.this_dir = C.abs_dir.split(osp.sep)[-1]
 
 C.root_dir = C.abs_dir[:C.abs_dir.index(C.repo_name) + len(C.repo_name)]
-C.log_dir = osp.abspath('log')
-C.tb_dir = osp.abspath(osp.join(C.log_dir, "tb"))
+C.log_dir = os.environ['log_dir']
+C.tb_dir = os.environ['tb_dir']
 
-C.log_dir_link = osp.join(C.abs_dir, 'log')
+C.log_dir_link = osp.join(C.log_dir, 'log')
 
 # snapshot dir that stores checkpoints
 if os.getenv('snapshot_dir'):
@@ -52,7 +52,11 @@ C.link_val_log_file = C.log_dir + '/val_last.log'
 C.dataset_path = osp.join(C.volna, 'DATA/pascal_voc')
 C.img_root_folder = C.dataset_path
 C.gt_root_folder = C.dataset_path
-C.pretrained_model = C.volna + 'DATA/pytorch-weight/resnet50_v1c.pth'
+if os.getenv('resnet'):
+    C.resnet = str(os.environ['resnet'])
+else:
+    C.resnet = '50'
+C.pretrained_model = C.volna + f'DATA/pytorch-weight/resnet{C.resnet}_v1c.pth'
 
 """ Path Config """
 def add_path(path):
@@ -61,7 +65,11 @@ def add_path(path):
 add_path(osp.join(C.root_dir, 'furnace'))
 
 ''' Experiments Setting '''
-C.labeled_ratio = 8     # ratio of labeled set
+# ratio of labeled set
+if os.getenv('labeled_ratio'):
+    C.labeled_ratio = int(os.environ['labeled_ratio'])
+else:
+    C.labeled_ratio = 8
 C.train_source = osp.join(C.dataset_path, "subset_train_aug/train_aug_labeled_1-{}.txt".format(C.labeled_ratio))
 C.unsup_source = osp.join(C.dataset_path, "subset_train_aug/train_aug_unlabeled_1-{}.txt".format(C.labeled_ratio))
 C.eval_source = osp.join(C.dataset_path, "val.txt")
@@ -70,7 +78,11 @@ C.fix_bias = True
 C.bn_eps = 1e-5
 C.bn_momentum = 0.1
 
-C.cps_weight = 1
+C.unsup_weight = 0
+if os.getenv('cps_weight'):
+    C.cps_weight = float(os.environ['cps_weight'])
+else:
+    C.cps_weight = 1.5
 """Cutmix Config"""
 C.cutmix_mask_prop_range = (0.25, 0.5)
 C.cutmix_boxmask_n_boxes = 3
@@ -91,6 +103,11 @@ C.num_eval_imgs = 1449
 C.num_unsup_imgs = 10582 - C.num_train_imgs     # unsupervised samples
 
 """Train Config"""
+if os.getenv('tcps_pass'):
+    C.tcps_pass = str(os.environ['tcps_pass'])
+else:
+    C.tcps_pass = "normal"
+    
 if os.getenv('learning_rate'):
     C.lr = float(os.environ['learning_rate'])
 else:
@@ -101,11 +118,24 @@ if os.getenv('batch_size'):
 else:
     C.batch_size = 16
 
+if os.getenv('threshold'):
+    C.threshold = float(os.environ['threshold'])
+else:
+    C.threshold = 0.5
+
+if os.getenv('burnup_step'):
+    C.burnup_step = int(os.environ['burnup_step'])
+else:
+    C.burnup_step = 0
+
 C.lr_power = 0.9
 C.momentum = 0.9
 C.weight_decay = 1e-4
 
-C.nepochs = 34
+if os.getenv('nepochs'):
+    C.nepochs = int(os.environ['nepochs'])
+else:
+    C.nepochs = 0
 C.max_samples = max(C.num_train_imgs, C.num_unsup_imgs)     # Define the iterations in an epoch
 C.cold_start = 0
 C.niters_per_epoch = int(math.ceil(C.max_samples * 1.0 // C.batch_size))
