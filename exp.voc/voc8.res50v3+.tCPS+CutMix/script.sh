@@ -1,20 +1,11 @@
-#!/usr/bin/env bash
-nvidia-smi
+OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.tCPS+CutMix/cpsw${cps_weight}-t${threshold}"
 
-export volna="/home/ubuntu/volume/TorchSemiSeg/"
-export NGPUS=4
-export OUTPUT_PATH="/home/ubuntu/volume/TorchSemiSeg/output"
+export volna="/home/ptempczyk/df/TorchSemiSeg/"
+export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
 export snapshot_dir=$OUTPUT_PATH/snapshot
-
-export batch_size=8
-export learning_rate=0.0025
-export snapshot_iter=1
+export log_dir=$OUTPUT_PATH/log
+export tb_dir=$OUTPUT_PATH/tb
 
 python -m torch.distributed.launch --nproc_per_node=$NGPUS train.py
 export TARGET_DEVICE=$[$NGPUS-1]
-python eval.py -e 20-34 -d 0-$TARGET_DEVICE --save_path $OUTPUT_PATH/results
-
-# following is the command for debug
-# export NGPUS=1
-# export batch_size=2
-# python -m torch.distributed.launch --nproc_per_node=$NGPUS train.py --debug 1
+python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results

@@ -46,6 +46,13 @@ if os.getenv('debug') is not None:
 else:
     is_debug = False
 
+def get_mask(pred, THRESHOLD, TCPS_PASS='normal'):
+    max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
+    if TCPS_PASS == 'lowpass':
+        mask = max_value_per_pixel < THRESHOLD
+    else:
+        mask = max_value_per_pixel > THRESHOLD
+    return mask
 
 '''
 For CutMix.
@@ -92,8 +99,9 @@ with Engine(custom_parser=parser) as engine:
         engine.link_tb(tb_dir, generate_tb_dir)
 
     # config network and criterion
-    criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=255)
-    criterion_csst = nn.CrossEntropyLoss(reduction='mean', ignore_index=255)
+    IGNORE_INDEX = 255
+    criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=IGNORE_INDEX)
+    criterion_csst = nn.CrossEntropyLoss(reduction='mean', ignore_index=IGNORE_INDEX)
 
     if engine.distributed:
         BatchNorm2d = SyncBatchNorm
@@ -179,6 +187,11 @@ with Engine(custom_parser=parser) as engine:
         sum_loss_sup = 0
         sum_loss_sup_r = 0
         sum_cps = 0
+        sum_unsup_passed_percent_l, sum_unsup_passed_percent_r = 0, 0
+
+        THRESHOLD = config.threshold
+        BURNUP_STEP = config.burnup_step
+        THRESHOLDING_TYPE = "cut"  # "zero" or "cut"
 
         ''' supervised part '''
         for idx in pbar:
@@ -222,31 +235,53 @@ with Engine(custom_parser=parser) as engine:
             # It makes no difference whether we do this with logits or probabilities as
             # the mask pixels are either 1 or 0
             logits_cons_tea_1 = logits_u0_tea_1 * (1 - batch_mix_masks) + logits_u1_tea_1 * batch_mix_masks
-            _, ps_label_1 = torch.max(logits_cons_tea_1, dim=1)
-            ps_label_1 = ps_label_1.long()
+            _, max_l = torch.max(logits_cons_tea_1, dim=1)
+            max_l = max_l.long()
             logits_cons_tea_2 = logits_u0_tea_2 * (1 - batch_mix_masks) + logits_u1_tea_2 * batch_mix_masks
-            _, ps_label_2 = torch.max(logits_cons_tea_2, dim=1)
-            ps_label_2 = ps_label_2.long()
+            _, max_r = torch.max(logits_cons_tea_2, dim=1)
+            max_r = max_r.long()
 
             # Get student#1 prediction for mixed image
-            _, logits_cons_stu_1 = model(unsup_imgs_mixed, step=1)
+            _, pred_l = model(unsup_imgs_mixed, step=1)
             # Get student#2 prediction for mixed image
-            _, logits_cons_stu_2 = model(unsup_imgs_mixed, step=2)
+            _, pred_r = model(unsup_imgs_mixed, step=2)
 
-            cps_loss = criterion(logits_cons_stu_1, ps_label_2) + criterion(logits_cons_stu_2, ps_label_1)
+            if THRESHOLDING_TYPE == "cut":
+                    # valid mask generation for thresholding
+                    mask_l = get_mask(pred_l, THRESHOLD)
+                    mask_r = get_mask(pred_r, THRESHOLD)
+                   
+                    # for logging
+                    cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()
+                    dist.all_reduce(cps_passed_percent_l, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_l += cps_passed_percent_l / engine.world_size
+                    cps_passed_percent_r = mask_r.sum().float() / mask_r.numel()
+                    dist.all_reduce(cps_passed_percent_r, dist.ReduceOp.SUM)
+                    sum_unsup_passed_percent_r += cps_passed_percent_r / engine.world_size
+            else:
+                raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
+
+                    
+
+            if THRESHOLDING_TYPE == "cut":
+                # Fill low confidence pixels with ignored mask 
+                max_r[~mask_r.squeeze()] = IGNORE_INDEX
+                max_l[~mask_l.squeeze()] = IGNORE_INDEX
+
+            cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
             dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
             cps_loss = cps_loss / engine.world_size
             cps_loss = cps_loss * config.cps_weight
 
             # supervised loss on both models
-            _, sup_pred_l = model(imgs, step=1)
-            _, sup_pred_r = model(imgs, step=2)
+            _, pred_sup_l = model(imgs, step=1)
+            _, pred_sup_r = model(imgs, step=2)
 
-            loss_sup = criterion(sup_pred_l, gts)
+            loss_sup = criterion(pred_sup_l, gts)
             dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
             loss_sup = loss_sup / engine.world_size
 
-            loss_sup_r = criterion(sup_pred_r, gts)
+            loss_sup_r = criterion(pred_sup_r, gts)
             dist.all_reduce(loss_sup_r, dist.ReduceOp.SUM)
             loss_sup_r = loss_sup_r / engine.world_size
             current_idx = epoch * config.niters_per_epoch + idx
@@ -286,12 +321,17 @@ with Engine(custom_parser=parser) as engine:
             logger.add_scalar('train_loss_sup_r', sum_loss_sup_r / len(pbar), epoch)
             logger.add_scalar('train_loss_cps', sum_cps / len(pbar), epoch)
 
+            if THRESHOLDING_TYPE=='cut':
+                ### unsupervised thresholding - for logging ###
+                logger.add_scalar('thresholding/cps_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
+                logger.add_scalar('thresholding/cps_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
+
         if azure and engine.local_rank == 0:
             run.log(name='Supervised Training Loss', value=sum_loss_sup / len(pbar))
             run.log(name='Supervised Training Loss right', value=sum_loss_sup_r / len(pbar))
             run.log(name='Supervised Training Loss CPS', value=sum_cps / len(pbar))
 
-        if (epoch > config.nepochs // 6) and (epoch % config.snapshot_iter == 0) or (epoch == config.nepochs - 1):
+        if True:
             if engine.distributed and (engine.local_rank == 0):
                 engine.save_and_link_checkpoint(config.snapshot_dir,
                                                 config.log_dir,
