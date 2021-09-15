@@ -52,7 +52,11 @@ C.link_val_log_file = C.log_dir + '/val_last.log'
 C.dataset_path = osp.join(C.volna, 'DATA/pascal_voc')
 C.img_root_folder = C.dataset_path
 C.gt_root_folder = C.dataset_path
-C.pretrained_model = C.volna + 'DATA/pytorch-weight/resnet50_v1c.pth'
+if os.getenv('resnet'):
+    C.resnet = str(os.environ['resnet'])
+else:
+    C.resnet = '50'
+C.pretrained_model = C.volna + f'DATA/pytorch-weight/resnet{C.resnet}_v1c.pth'
 
 """ Path Config """
 def add_path(path):
@@ -92,6 +96,16 @@ C.num_eval_imgs = 1449
 C.num_unsup_imgs = 10582 - C.num_train_imgs     # unsupervised samples
 
 """Train Config"""
+if os.getenv('normalising_const'): # 0=OFF, 1=ON
+    C.normalising_const = int(os.environ['normalising_const'])
+else:
+    C.normalising_const = 0
+
+if os.getenv('num_networks'):
+    C.num_networks = int(os.environ['num_networks'])
+else:
+    C.num_networks = 2
+    
 if os.getenv('tcps_pass'):
     C.tcps_pass = str(os.environ['tcps_pass'])
 else:

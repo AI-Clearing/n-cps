@@ -23,6 +23,7 @@ from engine.engine import Engine
 from seg_opr.loss_opr import SigmoidFocalLoss, ProbOhemCrossEntropy2d
 # from seg_opr.sync_bn import DataParallelModel, Reduce, BatchNorm2d
 from tensorboardX import SummaryWriter
+from itertools import combinations
 
 try:
     from apex.parallel import DistributedDataParallel, SyncBatchNorm
@@ -89,40 +90,28 @@ with Engine(custom_parser=parser) as engine:
     # define and init the model
     model = Network(config.num_classes, criterion=criterion,
                     pretrained_model=config.pretrained_model,
-                    norm_layer=BatchNorm2d)
-    init_weight(model.branch1.business_layer, nn.init.kaiming_normal_,
-                BatchNorm2d, config.bn_eps, config.bn_momentum,
-                mode='fan_in', nonlinearity='relu')
-    init_weight(model.branch2.business_layer, nn.init.kaiming_normal_,
-                BatchNorm2d, config.bn_eps, config.bn_momentum,
-                mode='fan_in', nonlinearity='relu')
-
+                    norm_layer=BatchNorm2d, num_networks=config.num_networks)
+    for branch in model.branches:
+        init_weight(branch.business_layer, nn.init.kaiming_normal_,
+                    BatchNorm2d, config.bn_eps, config.bn_momentum,
+                    mode='fan_in', nonlinearity='relu')
+    
     # define the learning rate
     base_lr = config.lr
     if engine.distributed:
         base_lr = config.lr * engine.world_size
 
     # define the two optimizers
-    params_list_l = []
-    params_list_l = group_weight(params_list_l, model.branch1.backbone,
-                               BatchNorm2d, base_lr)
-    for module in model.branch1.business_layer:
-        params_list_l = group_weight(params_list_l, module, BatchNorm2d,
-                                   base_lr)        # head lr * 10
 
-    optimizer_l = torch.optim.SGD(params_list_l,
-                                lr=base_lr,
-                                momentum=config.momentum,
-                                weight_decay=config.weight_decay)
+    params_list = []
+    for branch in model.branches:        
+        params_list = group_weight(params_list, branch.backbone,
+                                BatchNorm2d, base_lr)
+        for module in branch.business_layer:
+            params_list = group_weight(params_list, module, BatchNorm2d,
+                                    base_lr)        # head lr * 10
 
-    params_list_r = []
-    params_list_r = group_weight(params_list_r, model.branch2.backbone,
-                               BatchNorm2d, base_lr)
-    for module in model.branch2.business_layer:
-        params_list_r = group_weight(params_list_r, module, BatchNorm2d,
-                                   base_lr)        # head lr * 10
-
-    optimizer_r = torch.optim.SGD(params_list_r,
+    optimizer = torch.optim.SGD(params_list,
                                 lr=base_lr,
                                 momentum=config.momentum,
                                 weight_decay=config.weight_decay)
@@ -142,7 +131,7 @@ with Engine(custom_parser=parser) as engine:
         model.to(device)
 
     engine.register_state(dataloader=train_loader, model=model,
-                          optimizer_l=optimizer_l, optimizer_r=optimizer_r)
+                          optimizer=optimizer)
     if engine.continue_state_object:
         engine.restore_checkpoint()
 
@@ -158,7 +147,6 @@ with Engine(custom_parser=parser) as engine:
             pbar = tqdm(range(10), file=sys.stdout, bar_format=bar_format)
         else:
             pbar = tqdm(range(config.niters_per_epoch), file=sys.stdout, bar_format=bar_format)
-
 
         dataloader = iter(train_loader)
         unsupervised_dataloader = iter(unsupervised_train_loader)
@@ -179,8 +167,7 @@ with Engine(custom_parser=parser) as engine:
 
         ''' supervised part '''
         for idx in pbar:
-            optimizer_l.zero_grad()
-            optimizer_r.zero_grad()
+            optimizer.zero_grad()
             engine.update_iteration(epoch, idx)
             start_time = time.time()
 
@@ -193,91 +180,99 @@ with Engine(custom_parser=parser) as engine:
             unsup_imgs = unsup_imgs.cuda(non_blocking=True)
             gts = gts.cuda(non_blocking=True)
 
-
             b, c, h, w = imgs.shape
-            _, pred_sup_l = model(imgs, step=1)
-            _, pred_unsup_l = model(unsup_imgs, step=1)
-            _, pred_sup_r = model(imgs, step=2)
-            _, pred_unsup_r = model(unsup_imgs, step=2)
 
-            ### unsupervised thresholding ###
-            current_idx = epoch * config.niters_per_epoch + idx
+            for pair in combinations(range(1, config.num_networks + 1), 2):
+                l, r = pair[0], pair[1]
+                _, pred_sup_l = model(imgs, step=l)
+                _, pred_unsup_l = model(unsup_imgs, step=l)
+                _, pred_sup_r = model(imgs, step=r)
+                _, pred_unsup_r = model(unsup_imgs, step=r)
 
-            cps_loss = torch.Tensor([0.]).to(device=pred_sup_l.device)
-            if current_idx >= BURNUP_STEP:
-                pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
-                pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
+                ### unsupervised thresholding ###
+                current_idx = epoch * config.niters_per_epoch + idx
 
-                if THRESHOLDING_TYPE == "cut":
-                    # valid mask generation for thresholding
-                    mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
-                    mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
+                cps_loss_all, loss_sup_all = [], []
+
+                cps_loss = torch.Tensor([0.]).to(device=pred_sup_l.device)
+                if current_idx >= BURNUP_STEP:
+                    pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
+                    pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
+
+                    if THRESHOLDING_TYPE == "cut":
+                        # valid mask generation for thresholding
+                        mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
+                        mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
+                        
+                        # for logging
+                        # cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()
+                        # dist.all_reduce(cps_passed_percent_l, dist.ReduceOp.SUM)
+                        # sum_unsup_passed_percent_l += cps_passed_percent_l / engine.world_size
+                        # cps_passed_percent_r = mask_r.sum().float() / mask_r.numel()
+                        # dist.all_reduce(cps_passed_percent_r, dist.ReduceOp.SUM)
+                        # sum_unsup_passed_percent_r += cps_passed_percent_r / engine.world_size
+                    else:
+                        raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
+
+                    ### cps loss ###
                     
-                    # for logging
-                    cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()
-                    dist.all_reduce(cps_passed_percent_l, dist.ReduceOp.SUM)
-                    sum_unsup_passed_percent_l += cps_passed_percent_l / engine.world_size
-                    cps_passed_percent_r = mask_r.sum().float() / mask_r.numel()
-                    dist.all_reduce(cps_passed_percent_r, dist.ReduceOp.SUM)
-                    sum_unsup_passed_percent_r += cps_passed_percent_r / engine.world_size
-                else:
-                    raise Exception(f"THRESHOLDING_TYPE={THRESHOLDING_TYPE} not implemented yet.")
+                    _, max_l = torch.max(pred_l, dim=1)
+                    _, max_r = torch.max(pred_r, dim=1)
+                    max_l = max_l.long()
+                    max_r = max_r.long()
 
-                ### cps loss ###
-                
-                _, max_l = torch.max(pred_l, dim=1)
-                _, max_r = torch.max(pred_r, dim=1)
-                max_l = max_l.long()
-                max_r = max_r.long()
-
-                if THRESHOLDING_TYPE == "cut":
+                    if THRESHOLDING_TYPE == "cut":
+                        # Fill low confidence pixels with ignored mask 
                     # Fill low confidence pixels with ignored mask 
-                    max_r[~mask_r.squeeze()] = IGNORE_INDEX
-                    max_l[~mask_l.squeeze()] = IGNORE_INDEX
-                    
-                cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
-                dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
-                cps_loss = cps_loss / engine.world_size
-                cps_loss = cps_loss * config.cps_weight
+                        # Fill low confidence pixels with ignored mask 
+                        max_r[~mask_r.squeeze()] = IGNORE_INDEX
+                        max_l[~mask_l.squeeze()] = IGNORE_INDEX
+                        
+                    cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
+                    dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
+                    cps_loss = cps_loss / engine.world_size
+                    cps_loss_all.append(cps_loss)
 
-            ### standard cross entropy loss ###
-            loss_sup = criterion(pred_sup_l, gts)
-            dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
-            loss_sup = loss_sup / engine.world_size
 
-            loss_sup_r = criterion(pred_sup_r, gts)
-            dist.all_reduce(loss_sup_r, dist.ReduceOp.SUM)
-            loss_sup_r = loss_sup_r / engine.world_size
+                ### standard cross entropy loss ###
+                loss_sup = criterion(pred_sup_l, gts)
+                dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
+                loss_sup = loss_sup / engine.world_size
+
+                loss_sup_r = criterion(pred_sup_r, gts)
+                dist.all_reduce(loss_sup_r, dist.ReduceOp.SUM)
+                loss_sup_r = loss_sup_r / engine.world_size
+                
+                loss_sup_all.append(loss_sup)
+                loss_sup_all.append(loss_sup_r)
 
             unlabeled_loss = False
 
             lr = lr_policy.get_lr(current_idx)
 
             # reset the learning rate
-            optimizer_l.param_groups[0]['lr'] = lr
-            optimizer_l.param_groups[1]['lr'] = lr
-            for i in range(2, len(optimizer_l.param_groups)):
-                optimizer_l.param_groups[i]['lr'] = lr
-            optimizer_r.param_groups[0]['lr'] = lr
-            optimizer_r.param_groups[1]['lr'] = lr
-            for i in range(2, len(optimizer_r.param_groups)):
-                optimizer_r.param_groups[i]['lr'] = lr
-
-            loss = loss_sup + loss_sup_r + cps_loss
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+            
+            n = config.num_networks
+            normalising_const = 2 / n if config.normalising_const else 1
+                
+            L_sup = torch.sum(torch.stack(loss_sup_all)) / n
+            L_cps =  normalising_const * (torch.sum(torch.stack(cps_loss_all)) / (n - 1))
+            loss = L_sup + (config.cps_weight * L_cps)
+            
             loss.backward()
-            optimizer_l.step()
-            optimizer_r.step()
+            optimizer.step()
 
             print_str = 'Epoch{}/{}'.format(epoch, config.nepochs) \
                         + ' Iter{}/{}:'.format(idx + 1, config.niters_per_epoch) \
                         + ' lr=%.2e' % lr \
-                        + ' loss_sup=%.2f' % loss_sup.item() \
-                        + ' loss_sup_r=%.2f' % loss_sup_r.item() \
-                            + ' loss_cps=%.4f' % cps_loss.item()
+                        + ' loss_sup=%.2f' % L_sup.item() \
+                        + ' loss_cps=%.4f' % L_cps.item()
+                        # + ' loss_sup_r=%.2f' % loss_sup_r.item() \
 
-            sum_loss_sup += loss_sup.item()
-            sum_loss_sup_r += loss_sup_r.item()
-            sum_cps += cps_loss.item()
+            sum_loss_sup += L_sup.item()
+            sum_cps += L_cps.item()
             pbar.set_description(print_str, refresh=False)
 
             end_time = time.time()
@@ -285,13 +280,13 @@ with Engine(custom_parser=parser) as engine:
 
         if engine.distributed and (engine.local_rank == 0):
             logger.add_scalar('train_loss_sup', sum_loss_sup / len(pbar), epoch)
-            logger.add_scalar('train_loss_sup_r', sum_loss_sup_r / len(pbar), epoch)
+            # logger.add_scalar('train_loss_sup_r', sum_loss_sup_r / len(pbar), epoch)
             logger.add_scalar('train_loss_cps', sum_cps / len(pbar), epoch)
 
-            if THRESHOLDING_TYPE=='cut':
+            # if THRESHOLDING_TYPE=='cut':
                 ### unsupervised thresholding - for logging ###
-                logger.add_scalar('thresholding/cps_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
-                logger.add_scalar('thresholding/cps_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
+                # logger.add_scalar('thresholding/cps_passed_l_percent', sum_unsup_passed_percent_l / len(pbar), epoch)                
+                # logger.add_scalar('thresholding/cps_passed_r_percent', sum_unsup_passed_percent_r / len(pbar), epoch)
                 # max_value_per_pixel_r_list = [torch.zeros_like(max_value_per_pixel_r) for _ in range(engine.world_size)]
                 # dist.all_gather(max_value_per_pixel_r_list, max_value_per_pixel_r)
                 # logger.add_histogram('thresholding/max_value_per_pixel_r', torch.stack(max_value_per_pixel_r_list))

@@ -10,20 +10,18 @@ from config import config
 from base_model import resnet50
 
 class Network(nn.Module):
-    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None):
+    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2):
         super(Network, self).__init__()
-        self.branch1 = SingleNetwork(num_classes, criterion, norm_layer, pretrained_model)
-        self.branch2 = SingleNetwork(num_classes, criterion, norm_layer, pretrained_model)
-
+        assert num_networks > 1, 'At least 2 networks are necessary!'
+        self.branches = nn.ModuleList([
+            SingleNetwork(num_classes, criterion, norm_layer, pretrained_model) for _ in range(num_networks)
+            ])
+        
     def forward(self, data, step=1):
         if not self.training:
-            pred1 = self.branch1(data)
+            pred1 = self.branches[0](data)
             return pred1
-
-        if step == 1:
-            return self.branch1(data)
-        elif step == 2:
-            return self.branch2(data)
+        return self.branches[step-1](data)
 
 class SingleNetwork(nn.Module):
     def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None):
