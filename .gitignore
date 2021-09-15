@@ -145,6 +145,7 @@ DATA/pascal_voc
 *.zip
 DATA/aic
 DATA/city
+DATA/pytorch-weight
 city.tar
 apex-new
 exp.aic
