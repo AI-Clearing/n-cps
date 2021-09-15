@@ -1,5 +1,5 @@
 CONDA_HOME="/home/ptempczyk/anaconda3"
-source $CONDA_HOME/bin/activate semiseg
+source $CONDA_HOME/bin/activate semiseg-prod
 cd /home/ptempczyk/df/TorchSemiSeg/exp.voc/voc8.res50v3+.tCPS/
 
 export NGPUS=4
@@ -10,6 +10,7 @@ export burnup_step=0
 export cps_weight=1.5
 export threshold=0.0
 export normalising_const=0
+export resnet=101
 
 export labeled_ratio=16
 export nepochs=32

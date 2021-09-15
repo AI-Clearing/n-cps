@@ -1,5 +1,5 @@
 CONDA_HOME="/home/ptempczyk/anaconda3"
-source $CONDA_HOME/bin/activate semiseg
+source $CONDA_HOME/bin/activate semiseg-prod
 cd /home/ptempczyk/df/TorchSemiSeg/exp.voc/voc8.res50v3+.tCPS/
 
 export NGPUS=4
