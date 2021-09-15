@@ -144,5 +144,8 @@ DATA/pascal_voc
 .vscode
 *.zip
 DATA/aic
+DATA/city
+city.tar
+apex-new
 exp.aic
 xaa
