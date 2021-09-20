@@ -154,7 +154,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     all_dev = parse_devices(args.devices)
 
-    network = Network(config.num_classes, criterion=None, norm_layer=nn.BatchNorm2d)
+    network = Network(config.num_classes, criterion=None, norm_layer=nn.BatchNorm2d, num_networks=config.num_networks, resnet_type=f'resnet{config.resnet}')
     data_setting = {'img_root': config.img_root_folder,
                     'gt_root': config.gt_root_folder,
                     'train_source': config.train_source,

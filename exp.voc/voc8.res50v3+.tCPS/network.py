@@ -1,5 +1,6 @@
 # encoding: utf-8
 
+# from furnace.base_model.resnet import resnet101
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,14 +8,14 @@ import torch.nn.functional as F
 from functools import partial
 from collections import OrderedDict
 from config import config
-from base_model import resnet50
+from base_model import resnet50, resnet101
 
 class Network(nn.Module):
-    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2):
+    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2, resnet_type='resnet50'):
         super(Network, self).__init__()
         assert num_networks > 1, 'At least 2 networks are necessary!'
         self.branches = nn.ModuleList([
-            SingleNetwork(num_classes, criterion, norm_layer, pretrained_model) for _ in range(num_networks)
+            SingleNetwork(num_classes, criterion, norm_layer, pretrained_model, resnet_type=resnet_type) for _ in range(num_networks)
             ])
         
     def forward(self, data, step=1):
@@ -24,12 +25,18 @@ class Network(nn.Module):
         return self.branches[step-1](data)
 
 class SingleNetwork(nn.Module):
-    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None):
+    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, resnet_type='resnet50'):
         super(SingleNetwork, self).__init__()
-        self.backbone = resnet50(pretrained_model, norm_layer=norm_layer,
-                                  bn_eps=config.bn_eps,
-                                  bn_momentum=config.bn_momentum,
-                                  deep_stem=True, stem_width=64)
+        if resnet_type == 'resnet50':
+            self.backbone = resnet50(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
+        elif resnet_type == 'resnet101':
+            self.backbone = resnet101(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
         self.dilate = 2
         for m in self.backbone.layer4.children():
             m.apply(partial(self._nostride_dilate, dilate=self.dilate))
