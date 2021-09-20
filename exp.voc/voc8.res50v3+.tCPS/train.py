@@ -145,7 +145,6 @@ def forward_all_models(model: nn.Module, imgs: torch.Tensor, unsup_imgs: torch.T
 def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor], pred_unsup_list: List[torch.Tensor]) -> torch.Tensor:
     """CPS loss calculation"""
     n = config.num_networks
-    cps_loss_list = []
     for pair in combinations(range(n), 2):
         l, r = pair[0], pair[1]
         pred_sup_l = pred_sup_list[l]
@@ -161,16 +160,8 @@ def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor
         # thresholding - valid mask generation for thresholding
         mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
         mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
-                
-        # for logging
-        # cps_passed_percent_l = mask_l.sum().float() / mask_l.numel()
-        # dist.all_reduce(cps_passed_percent_l, dist.ReduceOp.SUM)
-        # sum_unsup_passed_percent_l += cps_passed_percent_l / engine.world_size
-        # cps_passed_percent_r = mask_r.sum().float() / mask_r.numel()
-        # dist.all_reduce(cps_passed_percent_r, dist.ReduceOp.SUM)
-        # sum_unsup_passed_percent_r += cps_passed_percent_r / engine.world_size
     
-        ### cps loss ###                
+        ### for cps loss ###                
         max_l = torch.max(pred_l, dim=1)[1].long()
         max_r = torch.max(pred_r, dim=1)[1].long()
 
@@ -178,27 +169,28 @@ def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor
         max_r[~mask_r.squeeze()] = IGNORE_INDEX
         max_l[~mask_l.squeeze()] = IGNORE_INDEX
                 
-        cps_loss = criterion(pred_l, max_r) + criterion(pred_r, max_l)
+        cps_loss += criterion(pred_l, max_r) + criterion(pred_r, max_l)
         
-        dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
-        cps_loss = cps_loss / engine.world_size
-        cps_loss_list.append(cps_loss)
+    dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
+    cps_loss = cps_loss / engine.world_size
     
-    return (torch.sum(torch.stack(cps_loss_list)) / (n - 1))
+    return cps_loss / (n - 1)
 
 def calc_sup_loss(engine, criterion, gts, pred_sup_list) -> torch.Tensor:
     ### standard cross entropy loss ###
-    loss_sup_list = []
+    # loss_sup_list = []
     n = config.num_networks
     
-    for i in range(n):
-        loss_sup = criterion(pred_sup_list[i], gts)
-        
-        dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
-        loss_sup = loss_sup / engine.world_size
-        loss_sup_list.append(loss_sup)
+    loss_sup = torch.Tensor([0.]).to(device=gts.device) 
     
-    return torch.sum(torch.stack(loss_sup_list)) / n
+    for i in range(n):
+        loss_sup += criterion(pred_sup_list[i], gts)
+        
+    dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
+    loss_sup = loss_sup / engine.world_size
+        # loss_sup_list.append(loss_sup)
+    
+    return loss_sup / n
 
 def calc_loss(L_sup: torch.Tensor, L_cps: torch.Tensor) -> torch.Tensor:
     """Calculates the overall loss"""
