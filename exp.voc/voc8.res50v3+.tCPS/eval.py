@@ -150,6 +150,7 @@ if __name__ == "__main__":
     parser.add_argument('--show_image', '-s', default=False,
                         action='store_true')
     parser.add_argument('--save_path', '-p', default=None)
+    parser.add_argument('--delete_models', '-m', default=False)
 
     args = parser.parse_args()
     all_dev = parse_devices(args.devices)
@@ -172,4 +173,4 @@ if __name__ == "__main__":
                                  all_dev, args.verbose, args.save_path,
                                  args.show_image)
         segmentor.run(config.snapshot_dir, args.epochs, config.val_log_file,
-                      config.link_val_log_file)
+                      config.link_val_log_file, args.delete_models)

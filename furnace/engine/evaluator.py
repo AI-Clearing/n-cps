@@ -40,7 +40,7 @@ class Evaluator(object):
             ensure_dir(save_path)
         self.show_image = show_image
 
-    def run(self, model_path, model_indice, log_file, log_file_link):
+    def run(self, model_path, model_indice, log_file, log_file_link, delete_models=False):
         """There are four evaluation modes:
             1.only eval a .pth model: -e *.pth
             2.only eval a certain epoch: -e epoch
@@ -108,10 +108,12 @@ class Evaluator(object):
             results.write(result_line)
             results.write('\n')
             results.flush()
-            try:
-                os.remove(str(model))
-            except:
-                logger.info(f"Could not delete model: {str(model)}")
+            if delete_models:
+                try:
+                    os.remove(str(model))
+                    logger.info(f"Deleted model: {str(model)}")
+                except:
+                    logger.info(f"Could not delete model: {str(model)}")
 
         results.close()
 
