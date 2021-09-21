@@ -178,7 +178,6 @@ def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor
 
 def calc_sup_loss(engine, criterion, gts, pred_sup_list) -> torch.Tensor:
     ### standard cross entropy loss ###
-    # loss_sup_list = []
     n = config.num_networks
     
     loss_sup = torch.Tensor([0.]).to(device=gts.device) 
@@ -188,9 +187,8 @@ def calc_sup_loss(engine, criterion, gts, pred_sup_list) -> torch.Tensor:
         
     dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
     loss_sup = loss_sup / engine.world_size
-        # loss_sup_list.append(loss_sup)
     
-    return loss_sup / n
+    return loss_sup  #  * (2/n)
 
 def calc_loss(L_sup: torch.Tensor, L_cps: torch.Tensor) -> torch.Tensor:
     """Calculates the overall loss"""
