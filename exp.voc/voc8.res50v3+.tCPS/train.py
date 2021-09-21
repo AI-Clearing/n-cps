@@ -145,6 +145,7 @@ def forward_all_models(model: nn.Module, imgs: torch.Tensor, unsup_imgs: torch.T
 def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor], pred_unsup_list: List[torch.Tensor]) -> torch.Tensor:
     """CPS loss calculation"""
     n = config.num_networks
+    cps_loss = torch.Tensor([0.]).to(device=pred_sup_list[0].device)
     for pair in combinations(range(n), 2):
         l, r = pair[0], pair[1]
         pred_sup_l = pred_sup_list[l]
@@ -152,22 +153,18 @@ def calc_cps_loss(engine, criterion: nn.Module, pred_sup_list: List[torch.Tensor
         pred_sup_r = pred_sup_list[r]
         pred_unsup_r = pred_unsup_list[r]
 
-        cps_loss = torch.Tensor([0.]).to(device=pred_sup_l.device)
-
         pred_l = torch.cat([pred_sup_l, pred_unsup_l], dim=0)
         pred_r = torch.cat([pred_sup_r, pred_unsup_r], dim=0)
 
-        # thresholding - valid mask generation for thresholding
-        mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
-        mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
-    
         ### for cps loss ###                
         max_l = torch.max(pred_l, dim=1)[1].long()
         max_r = torch.max(pred_r, dim=1)[1].long()
 
-        # thresholding - fill low confidence pixels with ignored mask 
-        max_r[~mask_r.squeeze()] = IGNORE_INDEX
+        # thresholding
+        mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
+        mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
         max_l[~mask_l.squeeze()] = IGNORE_INDEX
+        max_r[~mask_r.squeeze()] = IGNORE_INDEX
                 
         cps_loss += criterion(pred_l, max_r) + criterion(pred_r, max_l)
         
