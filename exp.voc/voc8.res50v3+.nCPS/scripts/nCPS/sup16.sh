@@ -1,6 +1,6 @@
 CONDA_HOME="/home/ptempczyk/anaconda3"
 source $CONDA_HOME/bin/activate semiseg-prod
-cd /home/ptempczyk/df/TorchSemiSeg/exp.voc/voc8.res50v3+.tCPS/
+cd /home/ptempczyk/df/TorchSemiSeg/exp.voc/voc8.res50v3+.nCPS/
 
 export NGPUS=4
 export batch_size=8
@@ -14,8 +14,34 @@ export resnet=50
 
 export labeled_ratio=16
 export nepochs=32
+for i in 2 3
+do
+    export num_networks=$i    
+    ./script-ncps.sh
+    sleep 5
+done
 
-for i in 2 3 4 5 6
+export labeled_ratio=8
+export nepochs=34
+for i in 2 3
+do
+    export num_networks=$i    
+    ./script-ncps.sh
+    sleep 5
+done
+
+export labeled_ratio=4
+export nepochs=40
+for i in 2 3
+do
+    export num_networks=$i    
+    ./script-ncps.sh
+    sleep 5
+done
+
+export labeled_ratio=2
+export nepochs=60
+for i in 2 3
 do
     export num_networks=$i    
     ./script-ncps.sh
