@@ -1,5 +1,5 @@
 # OUTPUT_POSTFIX="voc8.res50v3+.tCPS/sup${labeled_ratio}-cpsw${cps_weight}-t${threshold}-b${burnup_step}-$"
-OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.tCPS/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
+OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.nCPS/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
 export volna="/home/ptempczyk/df/TorchSemiSeg/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"

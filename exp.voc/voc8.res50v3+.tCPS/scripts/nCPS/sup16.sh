@@ -10,7 +10,7 @@ export burnup_step=0
 export cps_weight=1.5
 export threshold=0.0
 export normalising_const=0
-export resnet=101
+export resnet=50
 
 export labeled_ratio=16
 export nepochs=32
@@ -19,4 +19,5 @@ for i in 2 3 4 5 6
 do
     export num_networks=$i    
     ./script-ncps.sh
+    sleep 5
 done
