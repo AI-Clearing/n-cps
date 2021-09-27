@@ -23,7 +23,7 @@ remoteip = os.popen('pwd').read()
 C.volna = os.getenv('volna', '/home/cxk/msra_container/')
 
 """please config ROOT_dir and user when u first using"""
-C.repo_name = 'TorchSemiSeg-prod'
+C.repo_name = os.getenv('repo_name', 'TorchSemiSeg-prod')
 C.abs_dir = osp.realpath(".")
 C.this_dir = C.abs_dir.split(osp.sep)[-1]
 
@@ -150,6 +150,7 @@ C.eval_scale_array = [1] #[1, 0.75, 1.25]
 C.eval_flip = False
 C.eval_base_size = 512
 C.eval_crop_size = 512
+C.eval_mode = os.getenv('eval_mode', None)
 
 """Display Config"""
 if os.getenv('snapshot_iter'):

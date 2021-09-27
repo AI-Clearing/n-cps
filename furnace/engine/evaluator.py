@@ -14,6 +14,18 @@ from utils.img_utils import pad_image_to_shape, normalize
 
 logger = get_logger()
 
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+def natural_keys(text):
+    ''' 
+    From https://stackoverflow.com/a/5967539/1141798
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
+
 
 class Evaluator(object):
     def __init__(self, dataset, class_num, image_mean, image_std, network,
@@ -56,6 +68,7 @@ class Evaluator(object):
             models = os.listdir(model_path)
             if "epoch-last.pth" in models:
                 models.remove("epoch-last.pth")
+            models.sort(key=natural_keys)
             sorted_models = [None] * len(models)
             model_idx = [0] * len(models)
 
