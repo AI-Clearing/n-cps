@@ -7,31 +7,53 @@ import torch.nn.functional as F
 from functools import partial
 from collections import OrderedDict
 from config import config
-from base_model import resnet50
+from base_model import resnet50, resnet101
 
 class Network(nn.Module):
-    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None):
+    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2, resnet_type='resnet50'):
         super(Network, self).__init__()
-        self.branch1 = SingleNetwork(num_classes, criterion, norm_layer, pretrained_model)
-        self.branch2 = SingleNetwork(num_classes, criterion, norm_layer, pretrained_model)
+        assert num_networks > 1, 'At least 2 networks are necessary!'
+        self.branches = nn.ModuleList([
+            SingleNetwork(num_classes, criterion, norm_layer, pretrained_model, resnet_type=resnet_type) for _ in range(num_networks)
+            ])
 
     def forward(self, data, step=1):
         if not self.training:
-            pred1 = self.branch1(data)
-            return pred1
-
-        if step == 1:
-            return self.branch1(data)
-        elif step == 2:
-            return self.branch2(data)
+            return self.forward_eval(data)
+        return self.branches[step-1](data)
+    
+    def forward_eval(self, data):
+        if config.eval_mode is None or config.eval_mode == 'single':
+            return self.branches[0](data)
+        else:
+            preds_list = []
+            for branch in self.branches:
+                preds_list.append(branch(data))
+            preds = torch.stack(preds_list)
+            if config.eval_mode == 'max_confidence':
+                return preds.max(dim=0)[0]
+            if config.eval_mode == 'majority':
+                # torch.bincount
+                raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')
+            if config.eval_mode == 'max_confidence_overlap':
+                overlap = ((self.branches[0](data).argmax(dim=1) == preds.max(dim=0)[0].argmax(dim=1)).sum() / preds.max(dim=0)[0].argmax(dim=1).numel()).item()
+                raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')
+            else:
+                raise Exception(f'No such eval_mode: {config.eval_mode}')
 
 class SingleNetwork(nn.Module):
-    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None):
+    def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, resnet_type='resnet50'):
         super(SingleNetwork, self).__init__()
-        self.backbone = resnet50(pretrained_model, norm_layer=norm_layer,
-                                  bn_eps=config.bn_eps,
-                                  bn_momentum=config.bn_momentum,
-                                  deep_stem=True, stem_width=64)
+        if resnet_type == 'resnet50':
+            self.backbone = resnet50(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
+        elif resnet_type == 'resnet101':
+            self.backbone = resnet101(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
         self.dilate = 2
         for m in self.backbone.layer4.children():
             m.apply(partial(self._nostride_dilate, dilate=self.dilate))

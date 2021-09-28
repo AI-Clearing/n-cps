@@ -10,20 +10,14 @@ export snapshot_iter=1
 export burnup_step=0
 export cps_weight=1.5
 export threshold=0.0
+export normalising_const=0
+export resnet=50
 
 #############
-export nepochs=60
-export labeled_ratio=2
-./script.sh
 
-export nepochs=40
-export labeled_ratio=4
-./script.sh
-
-export nepochs=34
-export labeled_ratio=8
-./script.sh
-
-export nepochs=32
-export labeled_ratio=16
-./script.sh
+for i in 2 3 4 5 6
+do
+    export num_networks=$i    
+    ./script-ncps.sh
+    sleep 5
+done
