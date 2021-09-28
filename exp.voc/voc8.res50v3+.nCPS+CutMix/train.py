@@ -136,31 +136,41 @@ def get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1):
 
     return imgs,gts,unsup_imgs_0,unsup_imgs_1,mask_params
 
-def forward_all_models(model: nn.Module, imgs: torch.Tensor, unsup_imgs: torch.Tensor) -> List[torch.Tensor]:
-    """Performs forward pass of `imgs` and `unsup_imgs` on all models"""
-    pred_sup_list, pred_unsup_list = [], []
+def forward_all_models(model: nn.Module, imgs: torch.Tensor) -> List[torch.Tensor]:
+    """Performs forward pass of `imgs` on all models"""
+    results_list = []
     for i in range(1, config.num_networks + 1):
-        pred_sup_list.append(model(imgs, step=i)[1])
-        pred_unsup_list.append(model(unsup_imgs, step=i)[1])
-    return pred_sup_list, pred_unsup_list
+        results_list.append(model(imgs, step=i)[1])
+    return results_list
 
-def calc_cps_loss(engine, criterion: nn.Module, pseudo_max_list: List[torch.Tensor], unsup_imgs_mixed_list: List[torch.Tensor]) -> torch.Tensor:
+def calc_cps_loss(
+    engine, 
+    criterion: nn.Module, 
+    logits_u0: List[torch.Tensor], 
+    logits_u1: List[torch.Tensor], 
+    batch_mix_masks: torch.Tensor,
+    pred_unsup_mixed_list: List[torch.Tensor]
+    ) -> torch.Tensor:
     """CPS loss calculation"""
-    pseudo_max_l, pseudo_max_r = pseudo_max_list[0], pseudo_max_list[1]
     n = config.num_networks
-    cps_loss = torch.Tensor([0.]).to(device=unsup_imgs_mixed_list[0].device)
+    cps_loss = torch.Tensor([0.]).to(device=pred_unsup_mixed_list[0].device)
     for pair in combinations(range(n), 2):
         l, r = pair[0], pair[1]
-        pred_l = unsup_imgs_mixed_list[l]
-        pred_r = unsup_imgs_mixed_list[r]
+        pred_unsup_mixed_l, pred_unsup_mixed_r = pred_unsup_mixed_list[l], pred_unsup_mixed_list[r]
+        
+        # CutMix stuff: Mix teacher predictions using same mask
+        logits_cons_tea_1 = logits_u0[l] * (1 - batch_mix_masks) + logits_u1[l] * batch_mix_masks
+        pseudo_max_l = torch.max(logits_cons_tea_1, dim=1)[1].long()
+        logits_cons_tea_2 = logits_u0[r] * (1 - batch_mix_masks) + logits_u1[r] * batch_mix_masks
+        pseudo_max_r = torch.max(logits_cons_tea_2, dim=1)[1].long()
 
         # thresholding
-        mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
-        mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
+        mask_l = get_mask(pred_unsup_mixed_l, THRESHOLD, TCPS_PASS)
+        mask_r = get_mask(pred_unsup_mixed_r, THRESHOLD, TCPS_PASS)
         pseudo_max_r[~mask_r.squeeze()] = IGNORE_INDEX
         pseudo_max_l[~mask_l.squeeze()] = IGNORE_INDEX
 
-        cps_loss += criterion(pred_l, pseudo_max_r) + criterion(pred_r, pseudo_max_l)
+        cps_loss += criterion(pred_unsup_mixed_l, pseudo_max_r) + criterion(pred_unsup_mixed_r, pseudo_max_l)
     
     dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
     cps_loss = cps_loss / engine.world_size
@@ -206,30 +216,18 @@ mask_collate_fn = SegCollate(batch_aug_fn=add_mask_params_to_batch)
 
 
 
-def get_data_cutmix(model, unsup_imgs_0, unsup_imgs_1, mask_params):
-    ''' CutMix data augmentation '''
-    batch_mix_masks = mask_params
-    unsup_imgs_mixed = unsup_imgs_0 * (1 - batch_mix_masks) + unsup_imgs_1 * batch_mix_masks
-    with torch.no_grad():
-        # Estimate the pseudo-label with branch#1 & supervise branch#2
-        _, logits_u0_tea_1 = model(unsup_imgs_0, step=1)
-        _, logits_u1_tea_1 = model(unsup_imgs_1, step=1)
-        logits_u0_tea_1 = logits_u0_tea_1.detach()
-        logits_u1_tea_1 = logits_u1_tea_1.detach()
-        # Estimate the pseudo-label with branch#2 & supervise branch#1
-        _, logits_u0_tea_2 = model(unsup_imgs_0, step=2)
-        _, logits_u1_tea_2 = model(unsup_imgs_1, step=2)
-        logits_u0_tea_2 = logits_u0_tea_2.detach()
-        logits_u1_tea_2 = logits_u1_tea_2.detach()
+def cutmix(unsup_imgs_0, unsup_imgs_1, batch_mix_masks):
+    """ High-level CutMix algorithm realisation.
 
-    # Mix teacher predictions using same mask
-    # It makes no difference whether we do this with logits or probabilities as
-    # the mask pixels are either 1 or 0
-    logits_cons_tea_1 = logits_u0_tea_1 * (1 - batch_mix_masks) + logits_u1_tea_1 * batch_mix_masks
-    pseudo_max_l = torch.max(logits_cons_tea_1, dim=1)[1].long()
-    logits_cons_tea_2 = logits_u0_tea_2 * (1 - batch_mix_masks) + logits_u1_tea_2 * batch_mix_masks
-    pseudo_max_r = torch.max(logits_cons_tea_2, dim=1)[1].long()
-    return unsup_imgs_mixed, pseudo_max_l, pseudo_max_r
+    Args:
+        unsup_imgs_0 (torch.Tensor): First batch of images to mix
+        unsup_imgs_1 (torch.Tensor): Second batch of images to mix
+        batch_mix_masks (torch.Tensor): Mask parameters defining how images are mixed
+
+    Returns:
+        torch.Tensor: (unsup_images_mixed) Mixed images tensor
+    """
+    return unsup_imgs_0 * (1 - batch_mix_masks) + unsup_imgs_1 * batch_mix_masks
 
 with Engine(custom_parser=parser) as engine:
     args = parser.parse_args()
@@ -282,10 +280,16 @@ with Engine(custom_parser=parser) as engine:
             start_time = time.time()
 
             imgs, gts, unsup_imgs_0, unsup_imgs_1, mask_params = get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1)
+            unsup_imgs_mixed = cutmix(unsup_imgs_0, unsup_imgs_1, mask_params)
 
-            pred_sup_list, pred_unsup_mixed_list = forward_all_models(model, imgs, unsup_imgs_mixed)
+            pred_sup_list = forward_all_models(model, imgs)
+            pred_unsup_mixed_list = forward_all_models(model, unsup_imgs_mixed)
 
-            L_cps = calc_cps_loss(engine, criterion, pseudo_max_list ,pred_unsup_mixed_list)
+            with torch.no_grad():
+                logits_u0 = forward_all_models(model, unsup_imgs_0)  # is detach() not necessary?
+                logits_u1 = forward_all_models(model, unsup_imgs_1)
+
+            L_cps = calc_cps_loss(engine, criterion, logits_u0, logits_u1, mask_params, pred_unsup_mixed_list)
             L_sup = calc_sup_loss(engine, criterion, gts, pred_sup_list)
 
             # reset the learning rate

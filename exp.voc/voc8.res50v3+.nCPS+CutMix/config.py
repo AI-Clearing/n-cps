@@ -20,13 +20,10 @@ cfg = C
 C.seed = 12345
 
 remoteip = os.popen('pwd').read()
-if os.getenv('volna') is not None:
-    C.volna = os.environ['volna']
-else:
-    C.volna = '/home/cxk/msra_container/' # the path to the data dir.
+C.volna = os.getenv('volna', '/home/cxk/msra_container/')
 
 """please config ROOT_dir and user when u first using"""
-C.repo_name = 'TorchSemiSeg'
+C.repo_name = os.getenv('repo_name', 'TorchSemiSeg-prod')
 C.abs_dir = osp.realpath(".")
 C.this_dir = C.abs_dir.split(osp.sep)[-1]
 
@@ -103,6 +100,16 @@ C.num_eval_imgs = 1449
 C.num_unsup_imgs = 10582 - C.num_train_imgs     # unsupervised samples
 
 """Train Config"""
+if os.getenv('normalising_const'): # 0=OFF, 1=ON
+    C.normalising_const = int(os.environ['normalising_const'])
+else:
+    C.normalising_const = 0
+
+if os.getenv('num_networks'):
+    C.num_networks = int(os.environ['num_networks'])
+else:
+    C.num_networks = 2
+
 if os.getenv('tcps_pass'):
     C.tcps_pass = str(os.environ['tcps_pass'])
 else:
@@ -150,6 +157,7 @@ C.eval_scale_array = [1] #[1, 0.75, 1.25]
 C.eval_flip = False
 C.eval_base_size = 512
 C.eval_crop_size = 512
+C.eval_mode = os.getenv('eval_mode', None)
 
 """Display Config"""
 if os.getenv('snapshot_iter'):

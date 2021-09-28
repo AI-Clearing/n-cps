@@ -1,6 +1,5 @@
 # encoding: utf-8
 
-# from furnace.base_model.resnet import resnet101
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

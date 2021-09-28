@@ -131,8 +131,12 @@ class SegEvaluator(Evaluator):
         if model_number and model_number.isnumeric():
             step = int(model_number)
             with SummaryWriter(log_dir=config.tb_dir+ '/tb') as tb:
-                tb.add_scalar('test/mIoU', mean_IU * 100.0, step)
-                tb.add_scalar('test/mAcc', mean_pixel_acc * 100.0, step)
+                if config.eval_mode is not None:
+                    suffix = f'-{config.eval_mode}'
+                else:
+                    suffix = ''
+                tb.add_scalar(f'test/mIoU{suffix}', np.nanmean(iu) * 100.0, step)
+                tb.add_scalar(f'test/mAcc{suffix}', mean_pixel_acc * 100.0, step)
 
         print(len(dataset.get_class_names()))
         result_line = print_iou(iu, mean_pixel_acc,
@@ -150,11 +154,12 @@ if __name__ == "__main__":
     parser.add_argument('--show_image', '-s', default=False,
                         action='store_true')
     parser.add_argument('--save_path', '-p', default=None)
+    parser.add_argument('--delete_models', '-m', default=False)
 
     args = parser.parse_args()
     all_dev = parse_devices(args.devices)
 
-    network = Network(config.num_classes, criterion=None, norm_layer=nn.BatchNorm2d)
+    network = Network(config.num_classes, criterion=None, norm_layer=nn.BatchNorm2d, num_networks=config.num_networks, resnet_type=f'resnet{config.resnet}')
     data_setting = {'img_root': config.img_root_folder,
                     'gt_root': config.gt_root_folder,
                     'train_source': config.train_source,
@@ -172,4 +177,4 @@ if __name__ == "__main__":
                                  all_dev, args.verbose, args.save_path,
                                  args.show_image)
         segmentor.run(config.snapshot_dir, args.epochs, config.val_log_file,
-                      config.link_val_log_file)
+                      config.link_val_log_file, args.delete_models)

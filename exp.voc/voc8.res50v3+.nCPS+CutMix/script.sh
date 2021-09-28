@@ -1,4 +1,4 @@
-OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.tCPS+CutMix/cpsw${cps_weight}-t${threshold}"
+OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.tCPS+CutMix/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
 export volna="/home/ptempczyk/df/TorchSemiSeg/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
