@@ -131,7 +131,7 @@ class SegEvaluator(Evaluator):
         if model_number and model_number.isnumeric():
             step = int(model_number)
             with SummaryWriter(log_dir=config.tb_dir+ '/tb') as tb:
-                if config.eval_mode is not None:
+                if config.eval_mode is not None and config.eval_mode != 'single':
                     suffix = f'-{config.eval_mode}'
                 else:
                     suffix = ''
