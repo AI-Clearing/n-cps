@@ -3,8 +3,9 @@ import os.path as osp
 import os
 import sys
 import time
-import math
 import argparse
+import math
+from typing import List
 from tqdm import tqdm
 
 import torch
@@ -16,13 +17,14 @@ import torch.backends.cudnn as cudnn
 from config import config
 from dataloader import get_train_loader
 from network import Network
-from dataloader import CityScape
+from dataloader import VOC
 from utils.init_func import init_weight, group_weight
 from engine.lr_policy import WarmUpPolyLR
 from engine.engine import Engine
-from seg_opr.loss_opr import SigmoidFocalLoss, ProbOhemCrossEntropy2d, bce2d
+from seg_opr.loss_opr import SigmoidFocalLoss, ProbOhemCrossEntropy2d
 # from seg_opr.sync_bn import DataParallelModel, Reduce, BatchNorm2d
 from tensorboardX import SummaryWriter
+from itertools import combinations
 
 try:
     from apex.parallel import DistributedDataParallel, SyncBatchNorm
@@ -30,20 +32,164 @@ except ImportError:
     raise ImportError(
         "Please install apex from https://www.github.com/nvidia/apex .")
 
-try:
-    from azureml.core import Run
-    azure = True
-    run = Run.get_context()
-except:
-    azure = False
+azure = False
+IGNORE_INDEX = 255
+THRESHOLD = config.threshold
+TCPS_PASS = config.tcps_pass
 
-if os.getenv('debug') is not None:
-    is_debug = os.environ['debug']
-else:
-    is_debug = False
+parser = argparse.ArgumentParser()
+
+os.environ['MASTER_PORT'] = '169711'
+
+is_debug = os.getenv('debug', False)
+
+def get_mask(pred, THRESHOLD, TCPS_PASS='normal'):
+    max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
+    if TCPS_PASS == 'lowpass':
+        mask = max_value_per_pixel < THRESHOLD
+    else:
+        mask = max_value_per_pixel > THRESHOLD
+    return mask
+
+def seed_everything(engine):
+    """Sets seed in torch and cuda"""
+    seed = config.seed
+    if engine.distributed:
+        seed = engine.local_rank
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+def get_tb_logger(engine):
+    tb_dir = f'{config.tb_dir}/{time.strftime("%b%d_%d-%H-%M", time.localtime())}'
+    generate_tb_dir =  f'{config.tb_dir}/tb'
+    logger = SummaryWriter(log_dir=tb_dir)
+    engine.link_tb(tb_dir, generate_tb_dir)
+    return logger
+
+def build_model(criterion):
+    """define and init the model"""
+    model = Network(config.num_classes, criterion=criterion, pretrained_model=config.pretrained_model,
+                    norm_layer=SyncBatchNorm, num_networks=config.num_networks, resnet_type=f'resnet{config.resnet}')
+    for branch in model.branches:
+        init_weight(branch.business_layer, nn.init.kaiming_normal_, SyncBatchNorm, config.bn_eps, 
+                    config.bn_momentum, mode='fan_in', nonlinearity='relu')
+                    
+    return model
+
+def get_base_lr(engine):
+    """define the learning rate"""
+    base_lr = config.lr
+    if engine.distributed:
+        base_lr = config.lr * engine.world_size
+    return base_lr
+
+def build_optimizer(model, base_lr):
+    """define the optimizers"""
+    params_list = []
+    for branch in model.branches:        
+        params_list = group_weight(params_list, branch.backbone, SyncBatchNorm, base_lr)
+        for module in branch.business_layer:
+            params_list = group_weight(params_list, module, SyncBatchNorm, base_lr) # head lr * 10
+    optimizer = torch.optim.SGD(params_list,
+                                lr=base_lr,
+                                momentum=config.momentum,
+                                weight_decay=config.weight_decay)
+                                
+    return optimizer
+
+def get_lr_policy(base_lr):
+    """config lr policy"""
+    total_iteration = config.nepochs * config.niters_per_epoch
+    lr_policy = WarmUpPolyLR(base_lr, config.lr_power, total_iteration, config.niters_per_epoch * config.warm_up_epoch)
+    return lr_policy
+
+def distribute_model(engine, model):
+    if engine.distributed:
+        if torch.cuda.is_available():
+            model.cuda()
+            model = DistributedDataParallel(model)
+    else:
+        print('Not distributed !!')
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = DataParallelModel(model, device_ids=engine.devices)
+        model.to(device)
+    return model
+
+def build_pbar(is_debug):
+    bar_format = '{desc}[{elapsed}<{remaining},{rate_fmt}]'
+    pbar_range = 10 if is_debug else config.niters_per_epoch
+    pbar = tqdm(range(pbar_range), file=sys.stdout, bar_format=bar_format)
+    return pbar
+
+def get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1):
+    """Get data from dataloaders"""
+    minibatch = dataloader.next()
+    unsup_minibatch_0 = unsupervised_dataloader_0.next()
+    unsup_minibatch_1 = unsupervised_dataloader_1.next()
+
+    imgs = minibatch['data'].cuda(non_blocking=True)
+    gts = minibatch['label'].cuda(non_blocking=True)
+    unsup_imgs_0 = unsup_minibatch_0['data'].cuda(non_blocking=True)
+    unsup_imgs_1 = unsup_minibatch_1['data'].cuda(non_blocking=True)
+    mask_params = unsup_minibatch_0['mask_params'].cuda(non_blocking=True)
+
+    return imgs,gts,unsup_imgs_0,unsup_imgs_1,mask_params
+
+def forward_all_models(model: nn.Module, imgs: torch.Tensor, unsup_imgs: torch.Tensor) -> List[torch.Tensor]:
+    """Performs forward pass of `imgs` and `unsup_imgs` on all models"""
+    pred_sup_list, pred_unsup_list = [], []
+    for i in range(1, config.num_networks + 1):
+        pred_sup_list.append(model(imgs, step=i)[1])
+        pred_unsup_list.append(model(unsup_imgs, step=i)[1])
+    return pred_sup_list, pred_unsup_list
+
+def calc_cps_loss(engine, criterion: nn.Module, pseudo_max_list: List[torch.Tensor], unsup_imgs_mixed_list: List[torch.Tensor]) -> torch.Tensor:
+    """CPS loss calculation"""
+    pseudo_max_l, pseudo_max_r = pseudo_max_list[0], pseudo_max_list[1]
+    n = config.num_networks
+    cps_loss = torch.Tensor([0.]).to(device=unsup_imgs_mixed_list[0].device)
+    for pair in combinations(range(n), 2):
+        l, r = pair[0], pair[1]
+        pred_l = unsup_imgs_mixed_list[l]
+        pred_r = unsup_imgs_mixed_list[r]
+
+        # thresholding
+        mask_l = get_mask(pred_l, THRESHOLD, TCPS_PASS)
+        mask_r = get_mask(pred_r, THRESHOLD, TCPS_PASS)
+        pseudo_max_r[~mask_r.squeeze()] = IGNORE_INDEX
+        pseudo_max_l[~mask_l.squeeze()] = IGNORE_INDEX
+
+        cps_loss += criterion(pred_l, pseudo_max_r) + criterion(pred_r, pseudo_max_l)
+    
+    dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
+    cps_loss = cps_loss / engine.world_size
+    
+    return cps_loss / (n - 1)
+
+def calc_sup_loss(engine, criterion, gts, pred_sup_list) -> torch.Tensor:
+    ### standard cross entropy loss ###
+    n = config.num_networks
+    
+    loss_sup = torch.Tensor([0.]).to(device=gts.device) 
+    
+    for i in range(n):
+        loss_sup += criterion(pred_sup_list[i], gts)
+        
+    dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
+    loss_sup = loss_sup / engine.world_size
+    
+    return loss_sup  #  * (2/n)
+
+def calc_loss(L_sup: torch.Tensor, L_cps: torch.Tensor) -> torch.Tensor:
+    """Calculates the overall loss"""
+    n = config.num_networks
+    normalising_const = 2 / n if config.normalising_const else 1
+    return L_sup + (config.cps_weight * normalising_const * L_cps)
+
 
 '''
-For CutMix
+For CutMix.
 '''
 import mask_gen
 from custom_collate import SegCollate
@@ -59,101 +205,60 @@ collate_fn = SegCollate()
 mask_collate_fn = SegCollate(batch_aug_fn=add_mask_params_to_batch)
 
 
-parser = argparse.ArgumentParser()
 
-os.environ['MASTER_PORT'] = '169711'
+def get_data_cutmix(model, unsup_imgs_0, unsup_imgs_1, mask_params):
+    ''' CutMix data augmentation '''
+    batch_mix_masks = mask_params
+    unsup_imgs_mixed = unsup_imgs_0 * (1 - batch_mix_masks) + unsup_imgs_1 * batch_mix_masks
+    with torch.no_grad():
+        # Estimate the pseudo-label with branch#1 & supervise branch#2
+        _, logits_u0_tea_1 = model(unsup_imgs_0, step=1)
+        _, logits_u1_tea_1 = model(unsup_imgs_1, step=1)
+        logits_u0_tea_1 = logits_u0_tea_1.detach()
+        logits_u1_tea_1 = logits_u1_tea_1.detach()
+        # Estimate the pseudo-label with branch#2 & supervise branch#1
+        _, logits_u0_tea_2 = model(unsup_imgs_0, step=2)
+        _, logits_u1_tea_2 = model(unsup_imgs_1, step=2)
+        logits_u0_tea_2 = logits_u0_tea_2.detach()
+        logits_u1_tea_2 = logits_u1_tea_2.detach()
+
+    # Mix teacher predictions using same mask
+    # It makes no difference whether we do this with logits or probabilities as
+    # the mask pixels are either 1 or 0
+    logits_cons_tea_1 = logits_u0_tea_1 * (1 - batch_mix_masks) + logits_u1_tea_1 * batch_mix_masks
+    pseudo_max_l = torch.max(logits_cons_tea_1, dim=1)[1].long()
+    logits_cons_tea_2 = logits_u0_tea_2 * (1 - batch_mix_masks) + logits_u1_tea_2 * batch_mix_masks
+    pseudo_max_r = torch.max(logits_cons_tea_2, dim=1)[1].long()
+    return unsup_imgs_mixed, pseudo_max_l, pseudo_max_r
 
 with Engine(custom_parser=parser) as engine:
     args = parser.parse_args()
-
     cudnn.benchmark = True
-
-    seed = config.seed
-    if engine.distributed:
-        seed = engine.local_rank
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
+    seed_everything(engine)
 
     # data loader + unsupervised data loader
-    train_loader, train_sampler = get_train_loader(engine, CityScape, train_source=config.train_source, \
-                                                   unsupervised=False, collate_fn=collate_fn)
-    unsupervised_train_loader_0, unsupervised_train_sampler_0 = get_train_loader(engine, CityScape, \
-                train_source=config.unsup_source, unsupervised=True, collate_fn=mask_collate_fn)
-    unsupervised_train_loader_1, unsupervised_train_sampler_1 = get_train_loader(engine, CityScape, \
-                train_source=config.unsup_source, unsupervised=True, collate_fn=collate_fn)
+    train_loader, train_sampler = get_train_loader(engine, VOC, train_source=config.train_source, unsupervised=False, collate_fn=collate_fn)
+    unsupervised_train_loader_0, unsupervised_train_sampler_0 = get_train_loader(engine, VOC, train_source=config.unsup_source, unsupervised=True, collate_fn=mask_collate_fn)
+    unsupervised_train_loader_1, unsupervised_train_sampler_1 = get_train_loader(engine, VOC, train_source=config.unsup_source, unsupervised=True, collate_fn=collate_fn)
 
     if engine.distributed and (engine.local_rank == 0):
-        tb_dir = config.tb_dir + '/{}'.format(time.strftime("%b%d_%d-%H-%M", time.localtime()))
-        generate_tb_dir = config.tb_dir + '/tb'
-        logger = SummaryWriter(log_dir=tb_dir)
-        engine.link_tb(tb_dir, generate_tb_dir)
+        logger = get_tb_logger(engine)
 
     # config network and criterion
-    pixel_num = 50000 * config.batch_size // engine.world_size
-    criterion = ProbOhemCrossEntropy2d(ignore_label=255, thresh=0.7,
-                                       min_kept=pixel_num, use_weight=False)
-    criterion_cps = nn.CrossEntropyLoss(reduction='mean', ignore_index=255)
+    criterion = nn.CrossEntropyLoss(reduction='mean', ignore_index=IGNORE_INDEX)
+    criterion_csst = nn.CrossEntropyLoss(reduction='mean', ignore_index=IGNORE_INDEX)
 
-    if engine.distributed:
-        BatchNorm2d = SyncBatchNorm
 
-    model = Network(config.num_classes, criterion=criterion,
-                    pretrained_model=config.pretrained_model,
-                    norm_layer=BatchNorm2d)
-    init_weight(model.branch1.business_layer, nn.init.kaiming_normal_,
-                BatchNorm2d, config.bn_eps, config.bn_momentum,
-                mode='fan_in', nonlinearity='relu')
-    init_weight(model.branch2.business_layer, nn.init.kaiming_normal_,
-                BatchNorm2d, config.bn_eps, config.bn_momentum,
-                mode='fan_in', nonlinearity='relu')
+    model = build_model(criterion)
+    base_lr = get_base_lr(engine)
+    optimizer = build_optimizer(model, base_lr)
+    lr_policy = get_lr_policy(base_lr)
 
-    base_lr = config.lr
-    if engine.distributed:
-        base_lr = config.lr
+    model = distribute_model(engine, model)
 
-    params_list_l = []
-    params_list_l = group_weight(params_list_l, model.branch1.backbone,
-                                 BatchNorm2d, base_lr)
-    for module in model.branch1.business_layer:
-        params_list_l = group_weight(params_list_l, module, BatchNorm2d,
-                                     base_lr)        # head lr * 10
-
-    optimizer_l = torch.optim.SGD(params_list_l,
-                                  lr=base_lr,
-                                  momentum=config.momentum,
-                                  weight_decay=config.weight_decay)
-
-    params_list_r = []
-    params_list_r = group_weight(params_list_r, model.branch2.backbone,
-                                 BatchNorm2d, base_lr)
-    for module in model.branch2.business_layer:
-        params_list_r = group_weight(params_list_r, module, BatchNorm2d,
-                                     base_lr)        # head lr * 10
-
-    optimizer_r = torch.optim.SGD(params_list_r,
-                                  lr=base_lr,
-                                  momentum=config.momentum,
-                                  weight_decay=config.weight_decay)
-
-    # config lr policy
-    total_iteration = config.nepochs * config.niters_per_epoch
-    lr_policy = WarmUpPolyLR(base_lr, config.lr_power, total_iteration, config.niters_per_epoch * config.warm_up_epoch)
-
-    if engine.distributed:
-        print('distributed !!')
-        if torch.cuda.is_available():
-            model.cuda()
-            model = DistributedDataParallel(model)
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = DataParallelModel(model, device_ids=engine.devices)
-        model.to(device)
-
-    engine.register_state(dataloader=train_loader, model=model,
-                          optimizer_l=optimizer_l, optimizer_r=optimizer_r)
+    engine.register_state(dataloader=train_loader, model=model, optimizer=optimizer)
     if engine.continue_state_object:
-        engine.restore_checkpoint()     # it will change the state dict of optimizer also
+        engine.restore_checkpoint()
 
     model.train()
     print('begin train')
@@ -161,137 +266,50 @@ with Engine(custom_parser=parser) as engine:
     for epoch in range(engine.state.epoch, config.nepochs):
         if engine.distributed:
             train_sampler.set_epoch(epoch)
-        bar_format = '{desc}[{elapsed}<{remaining},{rate_fmt}]'
-
-        if is_debug:
-            pbar = tqdm(range(10), file=sys.stdout, bar_format=bar_format)
-        else:
-            pbar = tqdm(range(config.niters_per_epoch), file=sys.stdout, bar_format=bar_format)
+        
+        pbar = build_pbar(is_debug)
 
         dataloader = iter(train_loader)
         unsupervised_dataloader_0 = iter(unsupervised_train_loader_0)
         unsupervised_dataloader_1 = iter(unsupervised_train_loader_1)
 
-        sum_loss_sup = 0
-        sum_loss_sup_r = 0
-        sum_cps = 0
-
-        ''' supervised part '''
+        tb_sum_loss_sup, tb_sum_cps = 0, 0
+        ''' main train loop '''
         for idx in pbar:
-            optimizer_l.zero_grad()
-            optimizer_r.zero_grad()
+            current_idx = epoch * config.niters_per_epoch + idx
+            optimizer.zero_grad()
             engine.update_iteration(epoch, idx)
             start_time = time.time()
 
-            minibatch = dataloader.next()
-            unsup_minibatch_0 = unsupervised_dataloader_0.next()
-            unsup_minibatch_1 = unsupervised_dataloader_1.next()
+            imgs, gts, unsup_imgs_0, unsup_imgs_1, mask_params = get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1)
 
-            imgs = minibatch['data']
-            gts = minibatch['label']
-            unsup_imgs_0 = unsup_minibatch_0['data']
-            unsup_imgs_1 = unsup_minibatch_1['data']
-            mask_params = unsup_minibatch_0['mask_params']
+            pred_sup_list, pred_unsup_mixed_list = forward_all_models(model, imgs, unsup_imgs_mixed)
 
-            imgs = imgs.cuda(non_blocking=True)
-            gts = gts.cuda(non_blocking=True)
-            unsup_imgs_0 = unsup_imgs_0.cuda(non_blocking=True)
-            unsup_imgs_1 = unsup_imgs_1.cuda(non_blocking=True)
-            mask_params = mask_params.cuda(non_blocking=True)
+            L_cps = calc_cps_loss(engine, criterion, pseudo_max_list ,pred_unsup_mixed_list)
+            L_sup = calc_sup_loss(engine, criterion, gts, pred_sup_list)
 
-            # unsupervised loss on model/branch#1
-            batch_mix_masks = mask_params
-            unsup_imgs_mixed = unsup_imgs_0 * (1 - batch_mix_masks) + unsup_imgs_1 * batch_mix_masks
-            with torch.no_grad():
-                # Estimate the pseudo-label with branch#1 & supervise branch#2
-                _, logits_u0_tea_1 = model(unsup_imgs_0, step=1)
-                _, logits_u1_tea_1 = model(unsup_imgs_1, step=1)
-                logits_u0_tea_1 = logits_u0_tea_1.detach()
-                logits_u1_tea_1 = logits_u1_tea_1.detach()
-                # Estimate the pseudo-label with branch#2 & supervise branch#1
-                _, logits_u0_tea_2 = model(unsup_imgs_0, step=2)
-                _, logits_u1_tea_2 = model(unsup_imgs_1, step=2)
-                logits_u0_tea_2 = logits_u0_tea_2.detach()
-                logits_u1_tea_2 = logits_u1_tea_2.detach()
-
-            # Mix teacher predictions using same mask
-            # It makes no difference whether we do this with logits or probabilities as
-            # the mask pixels are either 1 or 0
-            logits_cons_tea_1 = logits_u0_tea_1 * (1 - batch_mix_masks) + logits_u1_tea_1 * batch_mix_masks
-            _, ps_label_1 = torch.max(logits_cons_tea_1, dim=1)
-            ps_label_1 = ps_label_1.long()
-            logits_cons_tea_2 = logits_u0_tea_2 * (1 - batch_mix_masks) + logits_u1_tea_2 * batch_mix_masks
-            _, ps_label_2 = torch.max(logits_cons_tea_2, dim=1)
-            ps_label_2 = ps_label_2.long()
-
-            # Get student#1 prediction for mixed image
-            _, logits_cons_stu_1 = model(unsup_imgs_mixed, step=1)
-            # Get student#2 prediction for mixed image
-            _, logits_cons_stu_2 = model(unsup_imgs_mixed, step=2)
-
-            cps_loss = criterion_cps(logits_cons_stu_1, ps_label_2) + criterion_cps(logits_cons_stu_2, ps_label_1)
-            dist.all_reduce(cps_loss, dist.ReduceOp.SUM)
-            cps_loss = cps_loss / engine.world_size
-            cps_loss = cps_loss * config.cps_weight
-
-            # supervised loss on both models
-            _, sup_pred_l = model(imgs, step=1)
-            _, sup_pred_r = model(imgs, step=2)
-
-            loss_sup = criterion(sup_pred_l, gts)
-            dist.all_reduce(loss_sup, dist.ReduceOp.SUM)
-            loss_sup = loss_sup / engine.world_size
-
-            loss_sup_r = criterion(sup_pred_r, gts)
-            dist.all_reduce(loss_sup_r, dist.ReduceOp.SUM)
-            loss_sup_r = loss_sup_r / engine.world_size
-            current_idx = epoch * config.niters_per_epoch + idx
+            # reset the learning rate
             lr = lr_policy.get_lr(current_idx)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
 
-            optimizer_l.param_groups[0]['lr'] = lr
-            optimizer_l.param_groups[1]['lr'] = lr
-            for i in range(2, len(optimizer_l.param_groups)):
-                optimizer_l.param_groups[i]['lr'] = lr
-            optimizer_r.param_groups[0]['lr'] = lr
-            optimizer_r.param_groups[1]['lr'] = lr
-            for i in range(2, len(optimizer_r.param_groups)):
-                optimizer_r.param_groups[i]['lr'] = lr
+            loss = calc_loss(L_sup, L_cps)
 
-            loss = loss_sup + loss_sup_r + cps_loss
             loss.backward()
-            optimizer_l.step()
-            optimizer_r.step()
+            optimizer.step()
 
-            print_str = 'Epoch{}/{}'.format(epoch, config.nepochs) \
-                        + ' Iter{}/{}:'.format(idx + 1, config.niters_per_epoch) \
-                        + ' lr=%.2e' % lr \
-                        + ' loss_sup=%.2f' % loss_sup.item() \
-                        + ' loss_sup_r=%.2f' % loss_sup_r.item() \
-                        + ' loss_cps=%.4f' % cps_loss.item()
+            tb_sum_loss_sup += L_sup.item()
+            tb_sum_cps += L_cps.item()
 
-            sum_loss_sup += loss_sup.item()
-            sum_loss_sup_r += loss_sup_r.item()
-            sum_cps += cps_loss.item()
+            print_str = f'Epoch {epoch}/{config.nepochs} Iter {idx+1}/{config.niters_per_epoch}: lr={lr:.2e} loss_sup={L_sup.item():.2f} loss_cps={L_cps.item():.4f}'
             pbar.set_description(print_str, refresh=False)
 
             end_time = time.time()
 
         if engine.distributed and (engine.local_rank == 0):
-            logger.add_scalar('train_loss_sup', sum_loss_sup / len(pbar), epoch)
-            logger.add_scalar('train_loss_sup_r', sum_loss_sup_r / len(pbar), epoch)
-            logger.add_scalar('train_loss_cps', sum_cps / len(pbar), epoch)
+            logger.add_scalar('train_loss_sup', tb_sum_loss_sup / len(pbar), epoch)
+            logger.add_scalar('train_loss_cps', tb_sum_cps / len(pbar), epoch)
 
-        if azure and engine.local_rank == 0:
-            run.log(name='Supervised Training Loss', value=sum_loss_sup / len(pbar))
-            run.log(name='Supervised Training Loss right', value=sum_loss_sup_r / len(pbar))
-            run.log(name='Supervised Training Loss CPS', value=sum_cps / len(pbar))
-
-        if (epoch > config.nepochs // 6) and (epoch % config.snapshot_iter == 0) or (epoch == config.nepochs - 1):
-            if engine.distributed and (engine.local_rank == 0):
-                engine.save_and_link_checkpoint(config.snapshot_dir,
-                                                config.log_dir,
-                                                config.log_dir_link)
-            elif not engine.distributed:
-                engine.save_and_link_checkpoint(config.snapshot_dir,
-                                                config.log_dir,
-                                                config.log_dir_link)
+        # save all intermediate models
+        if (engine.distributed and (engine.local_rank == 0)) or not engine.distributed:
+            engine.save_and_link_checkpoint(config.snapshot_dir, config.log_dir, config.log_dir_link)

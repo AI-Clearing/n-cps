@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import time
+import re
 from tqdm import tqdm
 
 import torch
@@ -12,6 +13,18 @@ from utils.pyt_utils import load_model, link_file, ensure_dir
 from utils.img_utils import pad_image_to_shape, normalize
 
 logger = get_logger()
+
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+def natural_keys(text):
+    ''' 
+    From https://stackoverflow.com/a/5967539/1141798
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 
 class Evaluator(object):
@@ -39,7 +52,7 @@ class Evaluator(object):
             ensure_dir(save_path)
         self.show_image = show_image
 
-    def run(self, model_path, model_indice, log_file, log_file_link):
+    def run(self, model_path, model_indice, log_file, log_file_link, delete_models=False):
         """There are four evaluation modes:
             1.only eval a .pth model: -e *.pth
             2.only eval a certain epoch: -e epoch
@@ -55,6 +68,7 @@ class Evaluator(object):
             models = os.listdir(model_path)
             if "epoch-last.pth" in models:
                 models.remove("epoch-last.pth")
+            models.sort(key=natural_keys)
             sorted_models = [None] * len(models)
             model_idx = [0] * len(models)
 
@@ -94,15 +108,25 @@ class Evaluator(object):
                 logger.info("No model is loaded !!!!!!!")
                 self.val_func = self.network
             #from IPython import embed; embed()
+            try:
+                model_number = re.findall('\d+', str(model))[-1]
+            except IndexError:
+                model_number = None
             if len(self.devices ) == 1:
                 result_line = self.single_process_evalutation()
             else:
-                result_line = self.multi_process_evaluation()
+                result_line = self.multi_process_evaluation(model_number=model_number)
 
             results.write('Model: ' + model + '\n')
             results.write(result_line)
             results.write('\n')
             results.flush()
+            if delete_models:
+                try:
+                    os.remove(str(model))
+                    logger.info(f"Deleted model: {str(model)}")
+                except:
+                    logger.info(f"Could not delete model: {str(model)}")
 
         results.close()
 
@@ -124,7 +148,7 @@ class Evaluator(object):
 
 
 
-    def multi_process_evaluation(self):
+    def multi_process_evaluation(self, model_number=None):
         start_eval_time = time.perf_counter()
         nr_devices = len(self.devices)
         stride = int(np.ceil(self.ndata / nr_devices))
@@ -157,7 +181,7 @@ class Evaluator(object):
         for p in procs:
             p.join()
 
-        result_line = self.compute_metric(all_results)
+        result_line = self.compute_metric(all_results, model_number=model_number)
         logger.info(
             'Evaluation Elapsed Time: %.2fs' % (
                     time.perf_counter() - start_eval_time))

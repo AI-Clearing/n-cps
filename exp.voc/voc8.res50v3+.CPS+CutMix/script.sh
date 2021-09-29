@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 nvidia-smi
 
-export volna="path to your data dir"
-export NGPUS=4
-export OUTPUT_PATH="path to your output dir"
+export volna="/home/ubuntu/volume/TorchSemiSeg/"
+export NGPUS=8
+export OUTPUT_PATH="/home/ubuntu/volume/TorchSemiSeg/output/voc8.res50v3+.CPS+CutMix"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 
 export batch_size=8
