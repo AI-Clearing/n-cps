@@ -1,7 +1,7 @@
 cd scripts
 export env_file="ResNet101.env"
 export labeled_ratio=16
-export nepochs=2
+export nepochs=32
 for i in 2
 do
     export num_networks=$i    
@@ -9,28 +9,28 @@ do
     sleep 5
 done
 
-# export labeled_ratio=8
-# export nepochs=34
-# for i in 2 3
-# do
-#     export num_networks=$i    
-#     ./run-single.sh
-# done
+export labeled_ratio=8
+export nepochs=34
+for i in 2 3
+do
+    export num_networks=$i    
+    ./run-single.sh
+done
 
-# export labeled_ratio=4
-# export nepochs=40
-# for i in 2 3
-# do
-#     export num_networks=$i    
-#     ./run-single.sh
-# done
+export labeled_ratio=4
+export nepochs=40
+for i in 2 3
+do
+    export num_networks=$i    
+    ./run-single.sh
+done
 
-# export labeled_ratio=2
-# export nepochs=60
-# for i in 2 3
-# do
-#     export num_networks=$i    
-#     ./run-single-for_docker.sh
-# done
+export labeled_ratio=2
+export nepochs=60
+for i in 2 3
+do
+    export num_networks=$i    
+    ./run-single-for_docker.sh
+done
 
 cd ..
