@@ -12,18 +12,18 @@ export threshold=0.0
 export normalising_const=0
 export resnet=50
 
-export labeled_ratio=16
-export nepochs=32
-for i in 2 3
-do
-    export num_networks=$i    
-    ./script-ncps.sh
-    sleep 5
-done
+# export labeled_ratio=16
+# export nepochs=32
+# for i in 2 3
+# do
+#     export num_networks=$i    
+#     ./script-ncps.sh
+#     sleep 5
+# done
 
 export labeled_ratio=8
 export nepochs=34
-for i in 2 3
+for i in 3
 do
     export num_networks=$i    
     ./script-ncps.sh
@@ -31,7 +31,7 @@ do
 done
 
 export labeled_ratio=4
-export nepochs=340
+export nepochs=40
 for i in 2 3
 do
     export num_networks=$i    
