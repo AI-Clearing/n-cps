@@ -1,8 +1,16 @@
 # nCPS
 
+
+
 ## Docker
+You'll need two volumes - one (SSD) for data and current calculations (`volume`) and one for cold results storage (`volume-cold`).
+```
+sudo mount /dev/xvdf /home/ubuntu/volume && sudo mount /dev/xvdg /home/ubuntu/volume-cold
+```
+
 To run the image (needs `"default-runtime": "nvidia"` on `/etc/docker/daemon.json` due to Apex compilation during the build)
 ```bash
+
 sudo docker image build --file Dockerfile --tag ncps:0.0.1 ../ && scripts/run-voc-101.sh
 ```
 (Please set the proper paths in `docker` directory)

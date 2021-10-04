@@ -1,8 +1,7 @@
 cd scripts
 export env_file="ResNet101.env"
 export labeled_ratio=16
-export nepochs=32
-for i in 2
+for i in 2 3
 do
     export num_networks=$i    
     ./run-single.sh
@@ -30,7 +29,9 @@ export nepochs=60
 for i in 2 3
 do
     export num_networks=$i    
-    ./run-single-for_docker.sh
+    ./run-single.sh
 done
 
 cd ..
+
+sudo shutdown -P now
