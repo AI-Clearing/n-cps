@@ -1,6 +1,7 @@
 cd scripts
 export env_file="ResNet101.env"
 export labeled_ratio=16
+export nepochs=32
 for i in 2 3
 do
     export num_networks=$i    
