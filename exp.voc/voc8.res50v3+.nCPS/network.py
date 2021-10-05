@@ -29,13 +29,15 @@ class Network(nn.Module):
             preds_list = []
             for branch in self.branches:
                 preds_list.append(branch(data))
-            preds = torch.stack(preds_list)
+            preds = torch.stack(preds_list)  # (n, b, c, w, h)
             if config.eval_mode == 'max_confidence':
                 return preds.max(dim=0)[0]
-            if config.eval_mode == 'majority':
+            elif config.eval_mode == 'max_confidence_softmax':
+                return F.softmax(preds, dim=2).max(dim=0)[0]
+            elif config.eval_mode == 'majority':
                 # torch.bincount
                 raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')
-            if config.eval_mode == 'max_confidence_overlap':
+            elif config.eval_mode == 'max_confidence_overlap':
                 overlap = ((self.branches[0](data).argmax(dim=1) == preds.max(dim=0)[0].argmax(dim=1)).sum() / preds.max(dim=0)[0].argmax(dim=1).numel()).item()
                 raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')
             else:
