@@ -7,20 +7,19 @@ export batch_size=8
 export learning_rate=0.0025
 export snapshot_iter=1
 export burnup_step=0
-export cps_weight=0.0
+export cps_weight=1.5
 export threshold=0.0
 export normalising_const=0
 export resnet=50
 
-# nCPS, 0.0
-# export labeled_ratio=16
-# export nepochs=32
-# for i in 2 3
-# do
-#     export num_networks=$i    
-#     ./script-ncps.sh
-#     sleep 5
-# done
+export labeled_ratio=16
+export nepochs=32
+for i in 2 3
+do
+    export num_networks=$i    
+    ./script-ncps.sh
+    sleep 5
+done
 
 export labeled_ratio=8
 export nepochs=34

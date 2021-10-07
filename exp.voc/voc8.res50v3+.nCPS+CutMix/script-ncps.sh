@@ -22,6 +22,10 @@ export eval_mode="max_confidence"
 python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
 sleep 5
 
+export eval_mode="max_confidence_softmax"
+python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
+sleep 5
+
 # Archive results
 mkdir -p "/home/ubuntu/volume-cold/cps/${OUTPUT_POSTFIX_FOLDER}"
 mv $OUTPUT_PATH "/home/ubuntu/volume-cold/cps/${OUTPUT_POSTFIX_FOLDER}/"
