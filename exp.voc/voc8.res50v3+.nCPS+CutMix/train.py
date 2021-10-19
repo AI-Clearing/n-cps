@@ -165,10 +165,12 @@ def calc_cps_loss(
         pseudo_max_r = torch.max(logits_cons_tea_2, dim=1)[1].long()
 
         # thresholding
-        mask_l = get_mask(pred_unsup_mixed_l, THRESHOLD, TCPS_PASS)
-        mask_r = get_mask(pred_unsup_mixed_r, THRESHOLD, TCPS_PASS)
-        pseudo_max_r[~mask_r.squeeze()] = IGNORE_INDEX
-        pseudo_max_l[~mask_l.squeeze()] = IGNORE_INDEX
+        if THRESHOLD != 0:
+            raise Exception('Thresholding with CutMix has some dimensionality problems...')
+            mask_l = get_mask(pred_unsup_mixed_l, THRESHOLD, TCPS_PASS)
+            mask_r = get_mask(pred_unsup_mixed_r, THRESHOLD, TCPS_PASS)
+            pseudo_max_r[~mask_r.squeeze()] = IGNORE_INDEX
+            pseudo_max_l[~mask_l.squeeze()] = IGNORE_INDEX
 
         cps_loss += criterion(pred_unsup_mixed_l, pseudo_max_r) + criterion(pred_unsup_mixed_r, pseudo_max_l)
     
