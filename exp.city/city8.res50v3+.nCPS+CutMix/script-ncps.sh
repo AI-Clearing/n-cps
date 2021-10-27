@@ -1,11 +1,8 @@
-eval "$(conda shell.bash hook)"
-conda activate semiseg
-cd $PROJECT_HOME/exp.voc/voc8.res50v3+.nCPS/
-
-OUTPUT_POSTFIX_FOLDER="voc${labeled_ratio}.res${resnet}v3+.nCPS"
+OUTPUT_POSTFIX_FOLDER="city${labeled_ratio}.res${resnet}v3+.nCPS+CutMix"
 OUTPUT_POSTFIX="${OUTPUT_POSTFIX_FOLDER}/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
-export volna=$PROJECT_HOME/
+export repo_name='TorchSemiSeg-prod'
+export volna="/home/ptempczyk/df/TorchSemiSeg/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 export log_dir=$OUTPUT_PATH/log
@@ -33,4 +30,4 @@ sleep 5
 export TARGET_DIR="/home/ubuntu/volume-cold/cps/${OUTPUT_POSTFIX_FOLDER}/"
 mkdir -p $TARGET_DIR
 mv $OUTPUT_PATH $TARGET_DIR
-
+# TODO: fix symlinks in the moved output

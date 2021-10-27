@@ -1,8 +1,8 @@
 eval "$(conda shell.bash hook)"
 conda activate semiseg
-cd $PROJECT_HOME/exp.voc/voc8.res50v3+.nCPS/
+cd $PROJECT_HOME/exp.city/city8.res50v3+.nCPS+CutMix/
 
-OUTPUT_POSTFIX_FOLDER="voc${labeled_ratio}.res${resnet}v3+.nCPS"
+OUTPUT_POSTFIX_FOLDER="city${labeled_ratio}.res${resnet}v3+.nCPS+CutMix"
 OUTPUT_POSTFIX="${OUTPUT_POSTFIX_FOLDER}/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
 export volna=$PROJECT_HOME/
@@ -17,8 +17,10 @@ sleep 5
 
 # Evaluation
 export TARGET_DEVICE=$[$NGPUS-1]
+export from_epoch=$((nepochs - (nepochs * 1/3)))
+
 export eval_mode="single"
-python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
+python eval.py -e ${from_epoch}-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
 sleep 5
 
 # export eval_mode="max_confidence"
@@ -26,7 +28,7 @@ sleep 5
 # sleep 5
 
 export eval_mode="max_confidence_softmax"
-python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
+python eval.py -e ${from_epoch}-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
 sleep 5
 
 # Archive results
