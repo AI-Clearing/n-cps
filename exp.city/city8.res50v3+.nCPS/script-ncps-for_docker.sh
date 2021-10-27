@@ -17,7 +17,7 @@ sleep 5
 
 # Evaluation
 export TARGET_DEVICE=$[$NGPUS-1]
-export from_epoch=$((nepochs - (nepochs * 1/5)))
+export from_epoch=$((nepochs - (nepochs * 1/3)))
 
 export eval_mode="single"
 python eval.py -e ${from_epoch}-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results

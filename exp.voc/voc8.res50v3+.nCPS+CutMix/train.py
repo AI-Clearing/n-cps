@@ -41,7 +41,7 @@ parser = argparse.ArgumentParser()
 
 os.environ['MASTER_PORT'] = '169711'
 
-is_debug = os.getenv('debug', False)
+is_debug = os.getenv('debug', 'False').lower() in ('true', '1', 't')
 
 def get_mask(pred, THRESHOLD, TCPS_PASS='normal'):
     max_value_per_pixel = nn.functional.softmax(pred, dim=1).max(dim=1)[0]
@@ -122,7 +122,7 @@ def build_pbar(is_debug):
     pbar = tqdm(range(pbar_range), file=sys.stdout, bar_format=bar_format)
     return pbar
 
-def get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1):
+def get_data(dataloader, unsupervised_dataloader_0, unsupervised_dataloader_1) -> List[torch.Tensor]:
     """Get data from dataloaders"""
     minibatch = dataloader.next()
     unsup_minibatch_0 = unsupervised_dataloader_0.next()
