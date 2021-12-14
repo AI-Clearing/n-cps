@@ -34,9 +34,11 @@ class Network(nn.Module):
                 return preds.max(dim=0)[0]
             elif config.eval_mode == 'max_confidence_softmax':
                 return F.softmax(preds, dim=2).max(dim=0)[0]
-            elif config.eval_mode == 'majority':
-                # torch.bincount
-                raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')
+            elif config.eval_mode == 'soft_voting':
+                return F.softmax(preds, dim=2).sum(dim=0)
+            elif config.eval_mode == 'hard_voting':
+                mode_tensor = preds.argmax(dim=2).mode(dim=0)[0]
+                return F.one_hot(mode_tensor, num_classes=preds.shape[2]).reshape(preds.shape[1:])
             elif config.eval_mode == 'max_confidence_overlap':
                 overlap = ((self.branches[0](data).argmax(dim=1) == preds.max(dim=0)[0].argmax(dim=1)).sum() / preds.max(dim=0)[0].argmax(dim=1).numel()).item()
                 raise Exception(f'Not implemented yet - eval_mode: {config.eval_mode}')

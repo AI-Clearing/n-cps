@@ -29,6 +29,15 @@ export eval_mode="max_confidence_softmax"
 python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
 sleep 5
 
+export eval_mode="soft_voting"
+echo $eval_mode
+python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
+sleep 5
+
+# export eval_mode="hard_voting"
+# python eval.py -e 0-${nepochs} -d 0-$TARGET_DEVICE #--save_path $OUTPUT_PATH/results
+# sleep 5
+
 # Archive results
 export TARGET_DIR="/home/ubuntu/volume-cold/cps/${OUTPUT_POSTFIX_FOLDER}/"
 mkdir -p $TARGET_DIR

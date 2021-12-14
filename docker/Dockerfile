@@ -1,4 +1,4 @@
-FROM nvidia/cuda:10.2-devel-ubuntu18.04
+FROM nvidia/cuda:11.4.2-devel-ubuntu18.04
 # FROM charlescxk/ssc:2.0
 # Inspired by https://towardsdatascience.com/conda-pip-and-docker-ftw-d64fe638dc45
 
@@ -70,7 +70,8 @@ RUN conda activate $CONDA_ENV && cd ${PROJECT_DIR}/apex/ && python setup.py inst
 COPY ./ $PROJECT_DIR/
 RUN chown -R $UID:$GID $PROJECT_DIR
 
-COPY docker/entrypoint.sh /usr/local/bin/
+# change here for Pascal VOC or Cityscapes
+COPY docker/entrypoint-city.sh /usr/local/bin/entrypoint.sh
 RUN chown $UID:$GID /usr/local/bin/entrypoint.sh && \
     chmod u+x /usr/local/bin/entrypoint.sh
 ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
