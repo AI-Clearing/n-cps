@@ -16,12 +16,8 @@ The code in this repository is based mostly on the original [CPS repository](htt
 
 <img src=ReadmePic/ncps.png width="600">
 
-## Installation
+## Running the code
 Please refer to the [Installation](./docs/installation.md) document.
-
-## Getting Started
-Please follow the [Getting Started](./docs/getting_started.md) document.
-
 
 ## Citation
 

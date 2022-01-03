@@ -1,4 +1,4 @@
-# CONDA_HOME="/home/ptempczyk/anaconda3"
+# CONDA_HOME="/home/ubuntu/anaconda3"
 # source $CONDA_HOME/bin/activate semiseg
 
 # export NGPUS=4
@@ -15,7 +15,7 @@
 export tcps_pass="lowpass"
 OUTPUT_POSTFIX="voc8.res50v3+.tCPS/sup${labeled_ratio}-cpsw${cps_weight}-t${threshold}-b${burnup_step}-${tcps_pass}"
 
-export volna="/home/ptempczyk/df/TorchSemiSeg/"
+export volna="/home/ubuntu/ncps/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 export log_dir=$OUTPUT_PATH/log

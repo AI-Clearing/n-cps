@@ -1,6 +1,6 @@
 OUTPUT_POSTFIX="voc${labeled_ratio}.res${resnet}v3+.tCPS+CutMix/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
-export volna="/home/ptempczyk/df/TorchSemiSeg/"
+export volna="/home/ubuntu/ncps/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 export log_dir=$OUTPUT_PATH/log
