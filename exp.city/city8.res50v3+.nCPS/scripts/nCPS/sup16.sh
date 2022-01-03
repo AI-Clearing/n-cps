@@ -1,6 +1,6 @@
-CONDA_HOME="/home/ptempczyk/anaconda3"
+CONDA_HOME="/home/ubuntu/anaconda3"
 source $CONDA_HOME/bin/activate semiseg-prod
-cd /home/ptempczyk/df/TorchSemiSeg/exp.city/city8.res50v3+.nCPS/
+cd /home/ubuntu/ncps/exp.city/city8.res50v3+.nCPS/
 
 export NGPUS=4
 export batch_size=8

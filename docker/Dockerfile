@@ -71,7 +71,7 @@ COPY ./ $PROJECT_DIR/
 RUN chown -R $UID:$GID $PROJECT_DIR
 
 # change here for Pascal VOC or Cityscapes
-COPY docker/entrypoint-city.sh /usr/local/bin/entrypoint.sh
+COPY docker/entrypoint-voc.sh /usr/local/bin/entrypoint.sh
 RUN chown $UID:$GID /usr/local/bin/entrypoint.sh && \
     chmod u+x /usr/local/bin/entrypoint.sh
 ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]

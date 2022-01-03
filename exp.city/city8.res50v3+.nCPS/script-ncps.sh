@@ -2,7 +2,7 @@ OUTPUT_POSTFIX_FOLDER="city${labeled_ratio}.res${resnet}v3+.nCPS"
 OUTPUT_POSTFIX="${OUTPUT_POSTFIX_FOLDER}/n${num_networks}-cpsw${cps_weight}-t${threshold}-nc${normalising_const}"
 
 export repo_name='TorchSemiSeg-prod'
-export volna="/home/ptempczyk/df/TorchSemiSeg/"
+export volna="/home/ubuntu/ncps/"
 export OUTPUT_PATH="${volna}output/${OUTPUT_POSTFIX}"
 export snapshot_dir=$OUTPUT_PATH/snapshot
 export log_dir=$OUTPUT_PATH/log

@@ -44,4 +44,4 @@ done
 
 cd ..
 
-sudo shutdown -P now
+# sudo shutdown -P now
