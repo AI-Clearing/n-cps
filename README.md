@@ -1,71 +1,35 @@
-# nCPS
-
-
-
-## Docker
-You'll need two volumes - one (SSD) for data and current calculations (`volume`) and one for cold results storage (`volume-cold`).
-```
-sudo mount /dev/xvdf /home/ubuntu/volume && sudo mount /dev/xvdg /home/ubuntu/volume-cold
-```
-
-To run the image (needs `"default-runtime": "nvidia"` on `/etc/docker/daemon.json` due to Apex compilation during the build)
-```bash
-
-sudo docker image build --file Dockerfile --tag ncps:0.0.1 ../ && scripts/run-voc-101.sh
-```
-(Please set the proper paths in `docker` directory)
-
------
-
-Original readme below.
-
------
-
-# TorchSemiSeg
+# n-CPS
 <br>
 
-> [[CVPR 2021] Semi-Supervised Semantic Segmentation with Cross Pseudo Supervision](https://arxiv.org/abs/2106.01226)
+> [n-CPS: Generalising Cross Pseudo Supervision to n networks for Semi-Supervised Semantic Segmentation](https://arxiv.org/abs/2106.01226)
 >
-> by [Xiaokang Chen](https://charlescxk.github.io)<sup>1</sup>, [Yuhui Yuan](https://scholar.google.com/citations?user=PzyvzksAAAAJ&hl=zh-CN)<sup>2</sup>, [Gang Zeng](https://www.cis.pku.edu.cn/info/1177/1378.htm)<sup>1</sup>, [Jingdong Wang](https://jingdongwang2017.github.io/)<sup>2</sup>.
+> by [Dominik Filipiak](http://dfilipiak.com)<sup>1,2</sup>, [Piotr Tempczyk](https://ptempczyk.github.io)<sup>1,3</sup>, [Marek Cygan](https://www.mimuw.edu.pl/~cygan/)<sup>3</sup>.
 > 
-> <sup>1</sup> Key Laboratory of Machine Perception (MOE), Peking University
-><sup>2</sup> Microsoft Research Asia.
-> 
-> [[Poster](https://charlescxk.github.io/papers/CVPR2021_CPS/00446-poster.pdf)] [[Video (YouTube)](https://www.youtube.com/watch?v=5HKitm0O27w)]
->
-> ***Simpler Is Better !***
+> <sup>1</sup> AI Clearing, Inc. <br/>
+> <sup>2</sup> Semantic Technology Institute, Department of Computer Science, University of Innsbruck <br/>
+> <sup>3</sup> Institute of Informatics, University of Warsaw
 
+We present n-CPS – a generalisation of the recent state-of-the-art [cross pseudo supervision (CPS)]() approach for the task of semi-supervised semantic segmentation. In n-CPS, there are n simultaneously trained subnetworks that learn from each other through one-hot encoding perturbation and consistency regularisation. We also show that ensembling techniques applied to subnetworks outputs can significantly improve the performance. To the best of our knowledge, n-CPS paired with Cut-Mix outperforms CPS and sets the new state-of-the-art for Pascal VOC 2012 with (1/16, 1/8, 1/4, and 1/2 supervised regimes) and Cityscapes (1/16 supervised).
+
+The code in this repository is based mostly on the original [CPS repository](https://github.com/charlesCXK/TorchSemiSeg) and [NVidia Apex](https://github.com/NVIDIA/apex).
 <br>
 
-<img src=ReadmePic/cps.png width="600">
+<img src=ReadmePic/ncps.png width="600">
 
-## News
-- **[July 9  2021] We have released some SOTA methods (Mean Teacher, CCT, GCT).**  
-- **[June 3 2021] Please check our paper in [Arxiv](https://arxiv.org/abs/2106.01226). Data and code have been released.**  
-
-
-## Installation
+## Running the code
 Please refer to the [Installation](./docs/installation.md) document.
-
-## Getting Started
-Please follow the [Getting Started](./docs/getting_started.md) document.
-
 
 ## Citation
 
 Please consider citing this project in your publications if it helps your research.
 
 ```bibtex
-@inproceedings{chen2021-CPS,
-  title={Semi-Supervised Semantic Segmentation with Cross Pseudo Supervision},
-  author={Chen, Xiaokang and Yuan, Yuhui and Zeng, Gang and Wang, Jingdong},
-  booktitle={IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year={2021}
+@misc{filipiak2021ncps,
+      title={n-CPS: Generalising Cross Pseudo Supervision to n Networks for Semi-Supervised Semantic Segmentation}, 
+      author={Dominik Filipiak and Piotr Tempczyk and Marek Cygan},
+      year={2021},
+      eprint={2112.07528},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
 }
 ```
-
-#### TODO
-- [x] Dataset release
-- [x] Code for CPS + CutMix
-- [x] Code for Cityscapes dataset
-- [x] Other SOTA semi-supervised segmentation methods
