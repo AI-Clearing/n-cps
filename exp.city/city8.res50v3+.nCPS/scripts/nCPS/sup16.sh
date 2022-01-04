@@ -11,7 +11,6 @@ export cps_weight=6
 export threshold=0.0
 export normalising_const=0
 
-
 for r in 50 101
 do
     export resnet=$r
