@@ -1,8 +1,8 @@
 CONDA_HOME="/home/ubuntu/anaconda3"
-source $CONDA_HOME/bin/activate semiseg-prod
+source $CONDA_HOME/bin/activate semiseg
 cd /home/ubuntu/ncps/exp.city/city8.res50v3+.nCPS/
 
-export NGPUS=4
+export NGPUS=8
 export batch_size=8
 export learning_rate=0.02
 export snapshot_iter=1
@@ -14,7 +14,7 @@ export normalising_const=0
 
 for r in 50 101
 do
-    export resnet=r
+    export resnet=$r
 
     export labeled_ratio=16
     export nepochs=128
