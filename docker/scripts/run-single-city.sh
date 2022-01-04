@@ -1,4 +1,4 @@
-export CPS_HOME=/home/ubuntu/volume/cps
+export CPS_HOME=/home/ubuntu/ncps
 export CPS_HOME_DOCKER=/home/ubuntu/ncps
 export DATA_HOME=/home/ubuntu/volume/cps/DATA
 
