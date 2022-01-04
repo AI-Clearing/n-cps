@@ -25,6 +25,7 @@ Replace this with your own path and directories.
 
 There are two ways to run the code - without or without Docker. 
 The first option is recommended for most users.
+Both options were tested on Ubuntu 20.04 with driver version 460.106.00 and CUDA Version 11.2.
 The code is developed and tested using 4 (some VOC models) or 8 (VOC/Cityscapes) Tesla V100 GPUs.
 For Cityscapes and ResNet-101, GPUs with more memory will be needed (perhaps A100 will be sufficient, but it was not tested).
 
@@ -75,7 +76,7 @@ Please note that, for fair comparison, we control the total iterations during tr
 ### Running it with Docker (experimental)
 
 There are some potential issues with this mode and it is not recommended now.
-It is assumed that you have Docker installed and configured to work with GPUs.
+It is assumed that you have Docker installed and configured to work with GPUs (`nvidia-docker2`).
 Before running, check all the paths in the `docker` directory.
 
 **(1) Entrypoint**
