@@ -197,10 +197,10 @@ class Head(nn.Module):
         
         if resnet_type == "resnet18":
             self.aspp = ASPP(512, 256, [6, 12, 18], norm_act=norm_act)     # r18
-            first_conv = nn.Conv2d(64, 48, 1, bias=False),                 # r18
+            first_conv = nn.Conv2d(64, 48, 1, bias=False)                  # r18
         else:
             self.aspp = ASPP(2048, 256, [6, 12, 18], norm_act=norm_act)  # r50
-            first_conv = nn.Conv2d(256, 48, 1, bias=False),              # r50
+            first_conv = nn.Conv2d(256, 48, 1, bias=False)               # r50
 
         self.reduce = nn.Sequential(
             first_conv,
