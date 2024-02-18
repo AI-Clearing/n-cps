@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from functools import partial
 from collections import OrderedDict
 from config import config
-from base_model import resnet50, resnet101
+from base_model import resnet18, resnet34, resnet50, resnet101
 
 class Network(nn.Module):
     def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2, resnet_type='resnet50'):
@@ -58,6 +58,19 @@ class SingleNetwork(nn.Module):
                                     bn_eps=config.bn_eps,
                                     bn_momentum=config.bn_momentum,
                                     deep_stem=True, stem_width=64)
+        elif resnet_type == 'resnet18':
+            # https://github.com/open-mmlab/mim-example/blob/master/nuimages_seg/configs/pspnet/pspnet_r18-d8_512x1024_80k_nuim.py
+            self.backbone = resnet18(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
+        # elif resnet_type == 'resnet34':
+        #     self.backbone = resnet34(pretrained_model, norm_layer=norm_layer,
+        #                             bn_eps=config.bn_eps,
+        #                             bn_momentum=config.bn_momentum,
+        #                             deep_stem=True, stem_width=32)
+        # elif resnet_type == 'resnet1':
+        #     self.backbone = torch.hub.load('pytorch/vision:v0.8.0', 'mobilenet_v2', pretrained=True)
         self.dilate = 2
         for m in self.backbone.layer4.children():
             m.apply(partial(self._nostride_dilate, dilate=self.dilate))
@@ -177,10 +190,12 @@ class Head(nn.Module):
         super(Head, self).__init__()
 
         self.classify_classes = classify_classes
-        self.aspp = ASPP(2048, 256, [6, 12, 18], norm_act=norm_act)
+        # self.aspp = ASPP(2048, 256, [6, 12, 18], norm_act=norm_act)  # r50
+        self.aspp = ASPP(512, 256, [6, 12, 18], norm_act=norm_act)     # r18
 
         self.reduce = nn.Sequential(
-            nn.Conv2d(256, 48, 1, bias=False),
+            # nn.Conv2d(256, 48, 1, bias=False),                       # r50
+            nn.Conv2d(64, 48, 1, bias=False),                          # r18
             norm_act(48, momentum=bn_momentum),
             nn.ReLU(),
         )

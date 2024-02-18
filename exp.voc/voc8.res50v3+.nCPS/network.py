@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from functools import partial
 from collections import OrderedDict
 from config import config
-from base_model import resnet50, resnet101
+from base_model import resnet18, resnet50, resnet101
 
 class Network(nn.Module):
     def __init__(self, num_classes, criterion, norm_layer, pretrained_model=None, num_networks=2, resnet_type='resnet50'):
@@ -25,6 +25,17 @@ class Network(nn.Module):
     def forward_eval(self, data):
         if config.eval_mode is None or config.eval_mode == 'single':
             return self.branches[0](data)
+        elif config.eval_mode == 'all':
+            preds_list = []
+            for branch in self.branches:
+                preds_list.append(branch(data))
+            preds = torch.stack(preds_list)  # (n, b, c, w, h)
+
+            single = preds_list[0]            
+            max_confidence_softmax = F.softmax(preds, dim=2).max(dim=0)[0]
+            soft_voting = F.softmax(preds, dim=2).sum(dim=0)
+            
+            return single, max_confidence_softmax, soft_voting
         else:
             preds_list = []
             for branch in self.branches:
@@ -58,12 +69,18 @@ class SingleNetwork(nn.Module):
                                     bn_eps=config.bn_eps,
                                     bn_momentum=config.bn_momentum,
                                     deep_stem=True, stem_width=64)
+        elif resnet_type == 'resnet18':
+            # https://github.com/open-mmlab/mim-example/blob/master/nuimages_seg/configs/pspnet/pspnet_r18-d8_512x1024_80k_nuim.py
+            self.backbone = resnet18(pretrained_model, norm_layer=norm_layer,
+                                    bn_eps=config.bn_eps,
+                                    bn_momentum=config.bn_momentum,
+                                    deep_stem=True, stem_width=64)
         self.dilate = 2
         for m in self.backbone.layer4.children():
             m.apply(partial(self._nostride_dilate, dilate=self.dilate))
             self.dilate *= 2
 
-        self.head = Head(num_classes, norm_layer, config.bn_momentum)
+        self.head = Head(num_classes, norm_layer, config.bn_momentum, resnet_type)
         self.business_layer = []
         self.business_layer.append(self.head)
         self.criterion = criterion
@@ -173,14 +190,20 @@ class ASPP(nn.Module):
         return pool
 
 class Head(nn.Module):
-    def __init__(self, classify_classes, norm_act=nn.BatchNorm2d, bn_momentum=0.0003):
+    def __init__(self, classify_classes, norm_act=nn.BatchNorm2d, bn_momentum=0.0003, resnet_type="resnet50"):
         super(Head, self).__init__()
 
         self.classify_classes = classify_classes
-        self.aspp = ASPP(2048, 256, [6, 12, 18], norm_act=norm_act)
+        
+        if resnet_type == "resnet18":
+            self.aspp = ASPP(512, 256, [6, 12, 18], norm_act=norm_act)     # r18
+            first_conv = nn.Conv2d(64, 48, 1, bias=False),                 # r18
+        else:
+            self.aspp = ASPP(2048, 256, [6, 12, 18], norm_act=norm_act)  # r50
+            first_conv = nn.Conv2d(256, 48, 1, bias=False),              # r50
 
         self.reduce = nn.Sequential(
-            nn.Conv2d(256, 48, 1, bias=False),
+            first_conv,
             norm_act(48, momentum=bn_momentum),
             nn.ReLU(),
         )

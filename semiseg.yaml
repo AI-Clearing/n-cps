@@ -7,7 +7,7 @@ dependencies:
   - pip
   - pip:
     - easydict==1.9
-    - opencv-python==4.2.0.34
+    - opencv-python-headless==4.2.0.34
     - pbkdf2==1.3
     - protobuf==3.12.2
     - scipy==1.5.0
